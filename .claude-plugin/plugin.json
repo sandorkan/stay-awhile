@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "working-sounds",
+  "displayName": "Working Sounds",
+  "version": "0.1.0",
+  "description": "Plays a looping sound while Claude works, with distinct cues for done, failed and needs-you, plus an optional look-away nudge.",
+  "license": "MIT",
+  "keywords": ["audio", "notification", "ambient", "focus"],
+  "userConfig": {
+    "track": {
+      "type": "string",
+      "title": "Working sound",
+      "description": "Loop that plays while Claude is working.",
+      "options": [
+        "shuffle-ambient", "shuffle-8-bit", "shuffle-soundscapes",
+        "ambient/hold-music", "ambient/dusk", "ambient/lantern", "ambient/drift",
+        "8-bit/town", "8-bit/harbor", "8-bit/snowfield", "8-bit/ruins",
+        "soundscapes/rain", "soundscapes/forest", "soundscapes/beach", "soundscapes/fireplace",
+        "breathing", "heartbeat", "none"
+      ],
+      "default": "breathing"
+    },
+    "volume": {
+      "type": "number",
+      "title": "Volume",
+      "description": "0.0 (silent) to 1.0 (full). Applies where the audio player supports it.",
+      "default": 0.4,
+      "min": 0,
+      "max": 1
+    },
+    "cues": {
+      "type": "boolean",
+      "title": "Event cues",
+      "description": "Play short sounds when a turn finishes, fails, or needs your input.",
+      "default": true
+    },
+    "eye_cue_every": {
+      "type": "number",
+      "title": "Look-away cue interval",
+      "description": "Nudge you to look at something far away every Nth wait. 0 disables it.",
+      "default": 8,
+      "min": 0,
+      "max": 100
+    }
+  }
+}

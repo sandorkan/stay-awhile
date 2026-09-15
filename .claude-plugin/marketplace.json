@@ -1,0 +1,14 @@
+{
+  "name": "working-sounds-marketplace",
+  "owner": {
+    "name": "Sandro Brunner",
+    "url": "https://github.com/sandorkan"
+  },
+  "plugins": [
+    {
+      "name": "working-sounds",
+      "source": "./",
+      "description": "Audio while Claude works: a loop for presence, distinct cues for done, failed and needs-you, and an optional look-away nudge."
+    }
+  ]
+}
