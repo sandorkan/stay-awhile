@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-  "name": "working-sounds",
-  "displayName": "Working Sounds",
+  "name": "waiting-room",
+  "displayName": "Waiting Room",
   "version": "0.1.0",
   "description": "Plays a looping sound while Claude works, with distinct cues for done, failed and needs-you, plus an optional look-away nudge.",
   "license": "MIT",

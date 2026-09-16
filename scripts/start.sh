@@ -12,7 +12,10 @@
 
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 
-touch "$ACTIVE/$(session_id)" 2>/dev/null
+SID="$(session_id)"
+touch "$ACTIVE/$SID" 2>/dev/null
+# A resume is the same turn carrying on, so it doesn't restart the clock.
+[ "$1" = "resume" ] || wait_start "$SID"
 
 TRACK="${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm}"
 

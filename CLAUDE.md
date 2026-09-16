@@ -1,4 +1,4 @@
-# Working Sounds
+# Waiting Room
 
 Claude Code plugin: hooks in `hooks/hooks.json` call `scripts/start.sh` and
 `scripts/stop.sh`, which play loops and cues from `sounds/`. See README.md for
@@ -24,6 +24,16 @@ behaviour and options.
 - Loops on macOS use AVAudioPlayer via `osascript`, not repeated `afplay` —
   restarting afplay leaves a ~0.5s gap at every loop point.
 - Only kill PIDs that pass `ours` (command line contains the plugin path).
+
+## Wait logging
+
+- `wait_start` / `wait_end` in lib.sh write `$DATA/started/<session>` and
+  append to `$DATA/waits.log`. Measurement first: the point is to learn how
+  long waits actually are before building anything that reacts to their length.
+- `needs-you` deliberately keeps the start file, so one turn logs twice: the
+  stretch up to the permission prompt, then the whole turn.
+- Hooks read stdin once, so `session_id` is captured into `SID` at the top of
+  start.sh and stop.sh. Calling it twice returns `default` the second time.
 
 ## Sounds
 

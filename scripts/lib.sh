@@ -3,8 +3,8 @@
 # Every function here must be safe to call when no audio player exists.
 
 SOUNDS="${CLAUDE_PLUGIN_ROOT}/sounds"
-DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/working-sounds}"
-mkdir -p "$DATA/active" 2>/dev/null
+DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/waiting-room}"
+mkdir -p "$DATA/active" "$DATA/started" 2>/dev/null
 
 VOLUME="${CLAUDE_PLUGIN_OPTION_VOLUME:-0.4}"
 CUES="${CLAUDE_PLUGIN_OPTION_CUES:-true}"
@@ -13,6 +13,8 @@ CUES="${CLAUDE_PLUGIN_OPTION_CUES:-true}"
 # mud. Each session that's working holds a marker in $ACTIVE; the bed stops
 # when the last marker goes.
 ACTIVE="$DATA/active"
+STARTED="$DATA/started"
+WAITS="$DATA/waits.log"
 CURRENT="$DATA/current-track"
 LOOP_PID="$DATA/loop.pid"
 EYE_PID="$DATA/eye.pid"
@@ -94,6 +96,27 @@ session_id() {
 any_active() {
   find "$ACTIVE" -type f -mmin +120 -exec rm -f {} + 2>/dev/null
   [ -n "$(ls -A "$ACTIVE" 2>/dev/null)" ]
+}
+
+# --- how long the waits actually are ----------------------------------------
+# One tab-separated line per turn in $WAITS: when it ended, how many seconds it
+# ran, how it ended, which session. A local file, never sent anywhere. It
+# answers what this plugin otherwise guesses at — how much of a day is spent
+# waiting, and whether a typical wait is worth leaving the desk for.
+
+wait_start() { date +%s > "$STARTED/$1" 2>/dev/null; }
+
+# wait_end <session> <outcome>  — needs-you keeps the start time, because the
+# turn isn't over: it logs the stretch up to the prompt and keeps counting.
+wait_end() {
+  local began
+  began="$(cat "$STARTED/$1" 2>/dev/null)"
+  case "$began" in ''|*[!0-9]*) return 0 ;; esac
+  # ponytail: one ~50-byte line per turn, never rotated. Trim it if it matters.
+  printf '%s\t%s\t%s\t%s\n' "$(date +%FT%T%z)" "$(( $(date +%s) - began ))" "$2" "$1" \
+    >> "$WAITS" 2>/dev/null
+  [ "$2" = "needs-you" ] || rm -f "$STARTED/$1"
+  return 0
 }
 
 # --- loop control -----------------------------------------------------------

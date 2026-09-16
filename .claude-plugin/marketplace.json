@@ -1,12 +1,12 @@
 {
-  "name": "working-sounds-marketplace",
+  "name": "waiting-room-marketplace",
   "owner": {
     "name": "Sandro Brunner",
     "url": "https://github.com/sandorkan"
   },
   "plugins": [
     {
-      "name": "working-sounds",
+      "name": "waiting-room",
       "source": "./",
       "description": "Audio while Claude works: a loop for presence, distinct cues for done, failed and needs-you, and an optional look-away nudge."
     }

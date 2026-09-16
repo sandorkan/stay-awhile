@@ -10,7 +10,7 @@
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export CLAUDE_PLUGIN_ROOT="$ROOT"
 # Own state dir, so a simulation never stops a real session's loop.
-export CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/working-sounds-sim}"
+export CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/waiting-room-sim}"
 
 END="${1:-done}"
 SECS="${2:-8}"

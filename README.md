@@ -1,4 +1,4 @@
-# Working Sounds
+# Waiting Room
 
 Audio for the dead minute while Claude Code works.
 
@@ -6,17 +6,45 @@ A loop plays while a turn is running and stops when it ends. Finishing,
 failing, and needing your input each get a distinct one-shot, so you can tell
 what happened without looking at the terminal.
 
+## Why
+
+The wait isn't the expensive part. Switching is.
+
+When a turn takes a minute, the obvious move is to go do something else, and
+the something else is usually another conversation. That's the worst available
+choice. You leave one task unfinished to pick up another unfinished one, and
+part of your attention stays behind on each — what researchers on task
+switching call attention residue. You come back having paid to leave and
+paying again to return, several times an hour.
+
+The second-best choice is to stay and stare at the terminal, waiting for
+output. That keeps the thread but burns the minute on vigilance: watching for
+a change that a sound could have told you about.
+
+This plugin is for the third option. The loop says work is still happening, so
+there's no reason to check. The cues say what happened, so you can stand up,
+look out of the window, or close your eyes without monitoring anything. And
+the breathing tracks give you something to *do* that doesn't compete for the
+part of your mind still holding the task — following a paced breath costs
+almost nothing, where reading another thread costs exactly what you were
+about to need.
+
+Two honest caveats. Audio doesn't stop you switching; it removes one reason to
+(the uncertainty), and the rest is yours. And background sound can make a wait
+comfortable enough that you stop noticing when Claude is slow or heading the
+wrong way — which is worth noticing.
+
 ## Install
 
 ```bash
-/plugin marketplace add sandorkan/claude-working-sounds
-/plugin install working-sounds@working-sounds-marketplace
+/plugin marketplace add sandorkan/waiting-room
+/plugin install waiting-room@waiting-room-marketplace
 ```
 
 Or load it locally while developing:
 
 ```bash
-claude --plugin-dir ./claude-working-sounds
+claude --plugin-dir ./waiting-room
 ```
 
 To hear it without spending tokens, `scripts/simulate.sh` fires the hooks the
@@ -32,7 +60,7 @@ CLAUDE_PLUGIN_OPTION_TRACK=soundscapes/rain scripts/simulate.sh done 15
 Run `/config` and pick a track, or set it at install time:
 
 ```bash
-claude plugin install working-sounds@working-sounds-marketplace \
+claude plugin install waiting-room@waiting-room-marketplace \
   --config track=breathing/5.5-5.5-resonance --config volume=0.3
 ```
 
@@ -130,6 +158,28 @@ an ending that doesn't come.
 
 Don't bundle commercial music. A plugin shipping copyrighted tracks gets taken
 down rather than popular.
+
+## How long are the waits, really
+
+Every turn appends one tab-separated line to `~/.claude/waiting-room/waits.log`:
+when it ended, how many seconds it ran, how it ended, which session.
+
+```
+2026-09-16T11:26:35+0200	42	done	abc123
+```
+
+A turn stopped by a permission prompt logs a `needs-you` line and keeps
+counting, so you see both the stretch before the prompt and the whole turn.
+The file is local and goes nowhere. Delete it whenever; it's recreated.
+
+```bash
+awk -F'\t' '{n++; s+=$2; if ($2>m) m=$2}
+  END {printf "%d turns, %.0f min waiting, mean %.0fs, longest %ds\n", n, s/60, s/n, m}' \
+  ~/.claude/waiting-room/waits.log
+
+# how many waits are long enough to leave the desk for
+awk -F'\t' '$2 > 120' ~/.claude/waiting-room/waits.log | wc -l
+```
 
 ## Requirements
 

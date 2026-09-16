@@ -12,7 +12,9 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 
 CUE="${1:-silent}"
 
-rm -f "$ACTIVE/$(session_id)"
+SID="$(session_id)"
+rm -f "$ACTIVE/$SID"
+wait_end "$SID" "$CUE"
 
 if ! any_active; then
   kill_pidfile "$LOOP_PID"
