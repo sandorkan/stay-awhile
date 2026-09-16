@@ -1,0 +1,527 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Waiting Room — live scene</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d12; color: #8a93a6; padding: 24px;
+         font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  h1 { font-size: 13px; font-weight: 500; color: #c3cad8; margin: 0 0 14px; letter-spacing: .04em; }
+  .frame { position: relative; width: 960px; max-width: 100%; line-height: 0;
+           border-radius: 8px; overflow: hidden; box-shadow: 0 10px 34px rgba(0,0,0,.6); }
+  canvas { width: 100%; height: auto; image-rendering: pixelated; }
+  .hud { position: absolute; inset: 0; pointer-events: none; font: 12px ui-monospace, Menlo, monospace; }
+  .hud span { position: absolute; top: 10px; color: #eef3ff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+  .hud .left { left: 12px; opacity: .85; } .hud .right { right: 12px; opacity: .55; }
+  .panel { width: 960px; max-width: 100%; margin-top: 14px; display: flex; gap: 8px;
+           flex-wrap: wrap; align-items: center; }
+  button { font: 11px ui-monospace, Menlo, monospace; color: #cbd3e2; background: #171b24;
+           border: 1px solid #262c39; border-radius: 5px; padding: 6px 10px; cursor: pointer; }
+  button:hover { background: #1e2432; }
+  button.on { border-color: #4a6ea8; color: #dce6ff; }
+  label { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
+  input[type=range] { width: 220px; }
+  .note { margin-top: 12px; max-width: 70ch; line-height: 1.6; }
+</style>
+
+<h1>Waiting Room — live scene</h1>
+<div class="frame">
+  <canvas id="cv" width="320" height="150"></canvas>
+  <div class="hud"><span class="left" id="hudL"></span><span class="right" id="hudR"></span></div>
+</div>
+<div class="panel">
+  <button id="bRun" class="on">turn running</button>
+  <button id="bDone">finish turn (birds)</button>
+  <button id="bReset">reset window (sunrise)</button>
+  <button id="bBirds">send birds</button>
+  <label>usage <input type="range" id="sUse" min="0" max="100" value="18"> <span id="useOut">18%</span></label>
+</div>
+<p class="note">Movement carries meaning: leaves and water move while a turn runs, everything
+settles when idle, birds lift when a turn finishes (and sometimes on their own), and the
+window reset is a sunrise. Clouds always drift.</p>
+
+<script>
+// ---------------------------------------------------------------- palettes
+const MOODS = {
+  dawn: {
+    sky:  ['#131a35','#1d2347','#2f2a56','#4a3160','#6e3f62','#9c5361','#c97358'],
+    haze: '#c98a63', light: '#ffe2b0', glow: '#ff9d52', rays: .22,
+    ridge: ['#4b4a78','#33315c','#211f40'],
+    leaf: '#1e1a35', leafLit: '#312a4e', bark: '#100e20',
+    bank: '#100f1d', bankTop: '#1e1c36', water: '#1a1c38', waterLight: '#4c4c84',
+    star: '#cdd6f5', mist: '#6a5d86', cloud: '#7a5f7e', cloudLit: '#e8a07a', starAmt: .55,
+  },
+  day: {
+    sky:  ['#2e6aa8','#4d84bb','#6b9ecb','#8bb8dc','#a9cde7','#c3dcee','#d8e8f2'],
+    haze: '#cfe0ec', light: '#fffbe2', glow: '#ffeeae', rays: .16,
+    ridge: ['#93b4c0','#6d95a0','#4a7a78'],
+    leaf: '#35624a', leafLit: '#5d8f5a', bark: '#23352c',
+    bank: '#1a2e22', bankTop: '#2f4c37', water: '#587f9e', waterLight: '#a6c9de',
+    star: '#ffffff', mist: '#b9d3e2', cloud: '#c9dbe8', cloudLit: '#ffffff', starAmt: 0,
+  },
+  dusk: {
+    sky:  ['#121631','#1d1b41','#342152','#57265a','#8a3555','#c15346','#ef8a4e'],
+    haze: '#e08a54', light: '#ffcf8a', glow: '#ff8a3c', rays: .34,
+    ridge: ['#6a4569','#472d4e','#291b33'],
+    leaf: '#1f1526', leafLit: '#3a2238', bark: '#130c18',
+    bank: '#140e1c', bankTop: '#281a31', water: '#2d2246', waterLight: '#7a4f6f',
+    star: '#e6ddff', mist: '#8a5a72', cloud: '#7e4a63', cloudLit: '#ffb072', starAmt: .5,
+  },
+  night: {
+    sky:  ['#060a18','#080d20','#0c1229','#111934','#16203f','#1c284c','#233058'],
+    haze: '#26355f', light: '#e9efff', glow: '#7f9ad4', rays: .12,
+    ridge: ['#1e2a4b','#16203a','#0d1426'],
+    leaf: '#101a31', leafLit: '#1b2a49', bark: '#070c17',
+    bank: '#05080f', bankTop: '#0d1428', water: '#0a1128', waterLight: '#26396a',
+    star: '#ffffff', mist: '#2b3a63', cloud: '#1c2949', cloudLit: '#3c5488', starAmt: 1,
+  },
+};
+// usage burns the day down: full window = dawn, empty = dusk, spent = night
+const RAMP = [[0, 'dawn'], [.35, 'day'], [.85, 'dusk'], [1, 'dusk']];
+
+const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const mix = (a,b,t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const lerp = (a,b,t) => a + (b-a) * t;
+
+function blendPal(A, B, t) {
+  const out = {};
+  for (const k in A) {
+    if (Array.isArray(A[k]) && Array.isArray(A[k][0])) out[k] = A[k].map((c, i) => mix(c, B[k][i], t));
+    else if (Array.isArray(A[k])) out[k] = mix(A[k], B[k], t);
+    else out[k] = lerp(A[k], B[k], t);
+  }
+  return out;
+}
+
+function paletteFor(used, nightAmt) {
+  const day = dayPalette(used);
+  return nightAmt > .001 ? blendPal(day, bake(MOODS.night), nightAmt) : day;
+}
+
+function dayPalette(used) {
+  let i = 0;
+  while (i < RAMP.length - 2 && used > RAMP[i+1][0]) i++;
+  const [u0, m0] = RAMP[i], [u1, m1] = RAMP[i+1];
+  const t = clamp((used - u0) / (u1 - u0 || 1), 0, 1);
+  return bake(MOODS[m0], MOODS[m1], t);
+}
+function bake(A, B, t = 0) {
+  const c = (k) => B ? mix(hex(A[k]), hex(B[k]), t) : hex(A[k]);
+  return {
+    sky: A.sky.map((s, i) => B ? mix(hex(s), hex(B.sky[i]), t) : hex(s)),
+    ridge: A.ridge.map((s, i) => B ? mix(hex(s), hex(B.ridge[i]), t) : hex(s)),
+    haze: c('haze'), light: c('light'), glow: c('glow'),
+    leaf: c('leaf'), leafLit: c('leafLit'), bark: c('bark'),
+    bank: c('bank'), bankTop: c('bankTop'), water: c('water'), waterLight: c('waterLight'),
+    star: c('star'), mist: c('mist'), cloud: c('cloud'), cloudLit: c('cloudLit'),
+    rays: B ? lerp(A.rays, B.rays, t) : A.rays,
+    starAmt: B ? lerp(A.starAmt, B.starAmt, t) : A.starAmt,
+  };
+}
+
+// ---------------------------------------------------------------- geometry
+const W = 320, H = 150, SHORE = 96, BANK = H - 20;
+const ARC = { cx: 160, cy: SHORE - 26, rx: 140, ry: 56 };
+const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r => r.map(v => (v+.5)/16));
+const LOBE = ['..**##..', '.*#####.', '*#######', '########', '#######%', '.######%', '..%###%.'];
+
+function rng(seed) { let s = seed >>> 0 || 1;
+  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+function arcXY(f) {
+  const t = Math.PI * (1 - clamp(f, 0, 1));
+  return { x: Math.round(ARC.cx + ARC.rx * Math.cos(t)), y: Math.round(ARC.cy - ARC.ry * Math.sin(t)) };
+}
+
+// ---------------------------------------------------------------- world (fixed layout, seeded)
+const world = (() => {
+  const R = rng(11);
+  const trees = [
+    { x: 8,      h: 34, spread: 17, lobes: 16, phase: R() * 6.28 },
+    { x: 46,     h: 23, spread: 13, lobes: 10, phase: R() * 6.28 },
+    { x: W - 13, h: 38, spread: 19, lobes: 18, phase: R() * 6.28 },
+    { x: W - 56, h: 21, spread: 12, lobes: 9,  phase: R() * 6.28 },
+  ].map(t => ({ ...t, branches: null, canopy: null, lean: (R() - .5) * .3 }));
+  const bushes = [];
+  for (let i = 0; i < 18; i++) bushes.push({ x: R() * W, y: BANK + 1 + R() * 3, r: 5 + R() * 6, f: R() > .5 });
+  const grass = [];
+  for (let x = 0; x < W; x++) if (R() > .55) grass.push({ x, h: 2 + (R() * 5 | 0), phase: R() * 6.28 });
+  const clouds = [];
+  for (let i = 0; i < 5; i++) clouds.push({
+    x: R() * W, y: 10 + R() * 40, w: 22 + R() * 34, h: 5 + R() * 5,
+    speed: .06 + R() * .16, seed: R() * 999, depth: R(),
+  });
+  const day = [];
+  for (let i = 0; i < 64; i++) {
+    const r = R();
+    day.push({ sec: r < .55 ? 5 + R() * 25 : r < .9 ? 30 + R() * 90 : 120 + R() * 400,
+               outcome: R() > .93 ? 'failed' : R() > .88 ? 'needs-you' : 'done',
+               switched: R() > .86 });
+  }
+  const stars = [];
+  for (let i = 0; i < 150; i++) stars.push({ x: R() * W, y: R() * (SHORE - 22), a: .2 + R() * .8, tw: R() * 6.28 });
+  return { trees, bushes, grass, clouds, stars, day };
+})();
+
+// pre-compute each tree's branch tips and lobe placement once
+for (const t of world.trees) {
+  const R = rng(t.x * 77 + 5);
+  const groundY = BANK + 2, trunkTop = groundY - t.h;
+  t.branches = [];
+  for (let b = 0; b < 3; b++) {
+    const at = trunkTop + t.h * (.12 + b * .16) + R() * 4, dir = b % 2 ? 1 : -1;
+    const len = t.spread * (.5 + R() * .6);
+    let x = t.x + t.lean * (groundY - at), y = at;
+    const path = [];
+    for (let s = 0; s < len; s++) { x += dir * .9; y -= .45 + R() * .2; path.push([x, y]); }
+    t.branches.push({ tip: { x, y }, path });
+  }
+  t.branches.push({ tip: { x: t.x + t.lean * (groundY - trunkTop), y: trunkTop - 2 }, path: [] });
+  t.canopy = [];
+  for (let i = 0; i < t.lobes; i++) {
+    const br = t.branches[(R() * t.branches.length) | 0];
+    t.canopy.push({
+      dx: br.tip.x + (R() * 16 - 8) - t.x, dy: br.tip.y + (R() * 12 - 7),
+      scale: t.h > 30 ? (R() > .35 ? 2 : 1) : (R() > .7 ? 2 : 1),
+      flip: br.tip.x < t.x, lag: R(),
+    });
+  }
+}
+
+// ---------------------------------------------------------------- state
+const state = {
+  used: .18, nightAmt: 0, moonF: .42, running: true, wind: 1, ripple: 1,
+  seq: null,               // the reset sequence, when one is playing
+  birds: [], lastBird: 0,
+};
+
+// The window reset, played out: the sun finishes setting, the moon rises and
+// sets over the same arc, and the sun comes back up on a full window.
+const RESET = [
+  { for: 3000, run: (k, from) => { state.used = from.used + (1 - from.used) * ease(k); } },
+  { for:  700, run: (k) => { state.nightAmt = ease(k); state.used = 1; state.moonF = 0; } },
+  { for: 4200, run: (k) => { state.moonF = ease(k); state.nightAmt = 1; } },
+  { for: 1400, run: (k) => { state.nightAmt = 1 - ease(k); state.used = 0; state.moonF = 1; } },
+];
+const ease = k => k < .5 ? 2*k*k : 1 - (-2*k + 2) ** 2 / 2;
+
+function startReset() { state.seq = { i: 0, t0: performance.now(), from: { used: state.used } }; }
+function stepReset(now) {
+  if (!state.seq) return;
+  const step = RESET[state.seq.i];
+  const k = (now - state.seq.t0) / step.for;
+  step.run(clamp(k, 0, 1), state.seq.from);
+  if (k >= 1) {
+    state.seq.i++; state.seq.t0 = now;
+    if (state.seq.i >= RESET.length) { state.seq = null; state.nightAmt = 0; state.used = 0; }
+  }
+}
+
+function spawnBirds(now, n = 3 + (Math.random() * 2 | 0)) {   // a small flock reads better than a swarm
+  // a flock in a loose V: a leader, the rest trailing behind and to the sides
+  const dir = Math.random() > .5 ? 1 : -1;
+  const y = 20 + Math.random() * 34, speed = (.3 + Math.random() * .22) * dir;
+  const x0 = dir > 0 ? -10 : W + 10;
+  for (let i = 0; i < n; i++) {
+    const rank = Math.ceil(i / 2), side = i === 0 ? 0 : (i % 2 ? 1 : -1);
+    state.birds.push({
+      x: x0 - dir * (rank * (5 + Math.random() * 3)),
+      y: y + side * rank * (2.4 + Math.random()) + (Math.random() * 1.6 - .8),
+      speed: speed * (1 + (Math.random() - .5) * .04),
+      phase: Math.random() * 6.28 + rank * .5,
+    });
+  }
+  state.lastBird = now;
+}
+
+// ---------------------------------------------------------------- static layers
+let cache = { key: '', base: null, water: null, pal: null, body: null };
+
+function buildStatic(pal, used, night) {
+  const px = new Uint8ClampedArray(W * H * 4);
+  const R = rng(4242);
+  const body = arcXY(used);
+  const put = (x, y, rgb, a = 1) => {
+    x |= 0; y |= 0;
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const o = (y * W + x) * 4;
+    px[o] = px[o]*(1-a) + rgb[0]*a; px[o+1] = px[o+1]*(1-a) + rgb[1]*a;
+    px[o+2] = px[o+2]*(1-a) + rgb[2]*a; px[o+3] = 255;
+  };
+
+  for (let y = 0; y < SHORE; y++)
+    for (let x = 0; x < W; x++) {
+      const d = Math.hypot((x - body.x) * .75, y - body.y);
+      let t = y / SHORE;
+      t += Math.max(0, 1 - d / 96) ** 2 * (night ? .28 : .62);
+      t += Math.max(0, 1 - Math.abs(y - SHORE) / 40) *
+           Math.max(0, 1 - Math.abs(x - body.x) / 200) * (night ? .12 : .4);
+      const i = clamp(t, 0, .999) * (pal.sky.length - 1), lo = Math.floor(i);
+      put(x, y, pal.sky[Math.min(pal.sky.length - 1, (i - lo) > BAYER[y&3][x&3] ? lo + 1 : lo)]);
+    }
+
+  if (pal.rays > 0)
+    for (let k = 0; k < 7; k++) {
+      const spread = (k - 3) * .17 + (R() - .5) * .06, strength = pal.rays * (.55 + R() * .45);
+      for (let s = 6; s < 130; s++) {
+        const x = body.x + Math.sin(spread) * s * 1.6, y = body.y + Math.cos(spread) * s;
+        if (y > SHORE) break;
+        const w = 1 + s * .05, fade = (1 - s / 130) * strength;
+        for (let o = -w; o <= w; o++) put(x+o, y, pal.light, fade * (1 - Math.abs(o)/(w+1)) * .5);
+      }
+    }
+
+  for (let i = 0; i <= 200; i += 5) { const q = arcXY(i / 200); put(q.x, q.y, pal.light, .09); }
+
+  // sun or moon
+  const r = night ? 6 : 7;
+  for (let y = -r-12; y <= r+12; y++)
+    for (let x = -r-12; x <= r+12; x++) {
+      const d = Math.hypot(x, y);
+      if (d > r && d <= r + 12) put(body.x+x, body.y+y, pal.glow, Math.max(0, 1-(d-r)/12)**2 * .5);
+    }
+  for (let y = -r; y <= r; y++)
+    for (let x = -r; x <= r; x++) {
+      if (x*x + y*y > r*r) continue;
+      let lit = true;
+      if (night && (x + .8 * 2 * r) ** 2 + y*y <= r*r) lit = false;   // crescent
+      put(body.x+x, body.y+y, lit ? pal.light : mix(pal.sky[pal.sky.length-1], pal.light, .12));
+    }
+
+  const ridges = [
+    { top: SHORE - 34, amp: 9, freq: .021, haze: .46, col: pal.ridge[0], seed: 1.7 },
+    { top: SHORE - 22, amp: 7, freq: .033, haze: .2,  col: pal.ridge[1], seed: 4.2 },
+    { top: SHORE - 11, amp: 5, freq: .047, haze: .02, col: pal.ridge[2], seed: 8.9 },
+  ];
+  for (const rd of ridges) {
+    const col = mix(rd.col, pal.haze, rd.haze), rim = mix(col, pal.light, .1);
+    for (let x = 0; x < W; x++) {
+      const h = Math.sin(x*rd.freq + rd.seed) * rd.amp
+              + Math.sin(x*rd.freq*2.7 + rd.seed*3) * rd.amp * .35
+              + Math.sin(x*rd.freq*6.1 + rd.seed) * rd.amp * .12;
+      const top = Math.round(rd.top - h);
+      for (let y = top; y < SHORE; y++) put(x, y, col);
+      const lit = Math.max(0, 1 - Math.abs(x - body.x) / 150);
+      if (lit > .1) put(x, top, rim, lit);
+      if (rd.haze < .25 && R() > .75) { const th = 1 + (R()*2|0); for (let y = top-th; y < top; y++) put(x, y, col); }
+    }
+    for (let y = rd.top + 2; y < rd.top + 14; y++)
+      for (let x = 0; x < W; x++) {
+        const a = Math.max(0, 1 - (y - rd.top - 2)/12) * .34 * (Math.sin(x*.03 + rd.seed)*.3 + .7);
+        if (BAYER[y&3][x&3] < a * 1.8) put(x, y, pal.mist, a);
+      }
+  }
+  return { px, body };
+}
+
+// ---------------------------------------------------------------- frame
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const frame = ctx.createImageData(W, H);
+
+function render(now) {
+  const t = now / 1000;
+  const used = clamp(state.used, 0, 1);
+  const night = state.nightAmt > .5;
+  const bodyF = night ? state.moonF : used;
+  const key = [Math.round(used * 200), Math.round(state.nightAmt * 40), Math.round(state.moonF * 200)].join('|');
+  if (key !== cache.key) {
+    cache.pal = paletteFor(used, state.nightAmt);
+    const s = buildStatic(cache.pal, bodyF, night);
+    cache.base = s.px; cache.body = s.body; cache.key = key;
+  }
+  const pal = cache.pal, body = cache.body;
+  const px = frame.data;
+  px.set(cache.base);
+
+  const put = (x, y, rgb, a = 1) => {
+    x |= 0; y |= 0;
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const o = (y * W + x) * 4;
+    px[o] = px[o]*(1-a) + rgb[0]*a; px[o+1] = px[o+1]*(1-a) + rgb[1]*a;
+    px[o+2] = px[o+2]*(1-a) + rgb[2]*a; px[o+3] = 255;
+  };
+
+  // --- stars twinkle (night only)
+  if (pal.starAmt > .02)
+    for (const s of world.stars) {
+      const a = s.a * pal.starAmt * (.6 + .4 * Math.sin(t * 1.3 + s.tw));
+      put(s.x, s.y, pal.star, a * clamp(Math.hypot(s.x - body.x, s.y - body.y) / 70, .15, 1));
+    }
+
+  // --- clouds drift, lit from the sun's side
+  for (const c of world.clouds) {
+    const cx = ((c.x + t * c.speed * 10) % (W + c.w * 2)) - c.w;
+    const lit = mix(pal.cloud, pal.cloudLit, clamp(1 - Math.abs(cx - body.x) / 120, 0, 1) * .8);
+    for (let y = 0; y < c.h; y++)
+      for (let x = 0; x < c.w; x++) {
+        const fx = x / c.w, fy = y / c.h;
+        const puff = Math.sin(fx * Math.PI) * (.6 + .4 * Math.sin(fx * 9 + c.seed))
+                   - Math.abs(fy - .45) * 1.7;
+        if (puff < .12) continue;
+        const a = clamp(puff * .9, 0, .75) * (c.depth * .5 + .5);
+        if (BAYER[(y + (c.seed|0)) & 3][(x + (cx|0)) & 3] < a * 1.5)
+          put(cx + x, c.y + y, y < c.h * .45 ? lit : pal.cloud, Math.min(.8, a));
+      }
+  }
+
+  // --- water: mirror the static scene with a moving ripple
+  const wob = (y, x) => Math.sin(y * .45 + t * .32) * (.6 + (y - SHORE) / (BANK - SHORE) * 2.4) * state.ripple
+                      + Math.sin(x * .05 - t * .19) * .6 * state.ripple;
+  for (let y = SHORE; y < BANK; y++) {
+    const depth = (y - SHORE) / (BANK - SHORE);
+    for (let x = 0; x < W; x++) {
+      const sy = clamp(Math.round(SHORE - (y - SHORE) * 1.2), 0, SHORE - 1);
+      const sx = clamp(Math.round(x + wob(y, x)), 0, W - 1);
+      const o = (sy * W + sx) * 4;
+      let c = mix([cache.base[o], cache.base[o+1], cache.base[o+2]], pal.water, .46 + depth * .38);
+      if (Math.sin(y * 2.1 + Math.sin(x * .03 + y * .35 - t * .22) * 2.6) > .955)
+        c = mix(c, pal.waterLight, .5);
+      const oo = (y * W + x) * 4;
+      px[oo] = c[0]; px[oo+1] = c[1]; px[oo+2] = c[2]; px[oo+3] = 255;
+    }
+  }
+  for (let x = 0; x < W; x++) put(x, SHORE, mix(pal.water, [0,0,0], .35));
+  {   // the light's path, shimmering
+    const R = rng((t * 2.5) | 0);
+    for (let y = SHORE; y < BANK; y++) {
+      const fade = 1 - (y - SHORE) / (BANK - SHORE), spread = 1.5 + (y - SHORE) * 1.1;
+      for (let d = 0; d < 2 + R() * 2; d++) {
+        const len = 2 + (R() * 4 | 0), x0 = body.x + (R() * 2 - 1) * spread;
+        for (let x = x0; x < x0 + len; x++) put(x, y, pal.light, clamp(fade * .34 * (.4 + R()*.6), 0, .4));
+      }
+    }
+  }
+
+  // --- bank, grass swaying
+  for (let x = 0; x < W; x++) {
+    const top = BANK + Math.round(Math.sin(x * .07) * 1.6);
+    for (let y = top; y < H; y++) put(x, y, y < top + 2 ? pal.bankTop : pal.bank);
+  }
+  for (const g of world.grass) {
+    const top = BANK + Math.round(Math.sin(g.x * .07) * 1.6);
+    const sway = Math.sin(t * 2.1 + g.phase) * state.wind;
+    for (let i = 0; i < g.h; i++)
+      put(g.x + sway * (i / g.h) * 1.6, top - i, i > g.h - 2 ? pal.bank : pal.bankTop, .9 - i * .12);
+  }
+
+  // --- trees: lobes sway more the higher and further out they are
+  for (const tr of world.trees) {
+    const groundY = BANK + 2, trunkTop = groundY - tr.h;
+    for (let y = groundY; y > trunkTop; y--) {
+      const f = (groundY - y) / tr.h;
+      const x = tr.x + tr.lean * (groundY - y) + Math.sin(t * 1.3 + tr.phase) * state.wind * f * 1.2;
+      const w = Math.max(1, Math.round(3 * (1 - f * .7)));
+      for (let o = 0; o < w; o++) put(x + o, y, o === 0 ? mix(pal.bark, pal.leafLit, .25) : pal.bark);
+    }
+    for (const br of tr.branches)
+      for (const [bx, by] of br.path) {
+        const f = (groundY - by) / tr.h;
+        put(bx + Math.sin(t * 1.3 + tr.phase) * state.wind * f * 1.2, by, pal.bark);
+      }
+    for (const lb of tr.canopy) {
+      const f = (groundY - lb.dy) / tr.h;
+      const sway = Math.sin(t * 1.3 + tr.phase + lb.lag * 1.2) * state.wind * f * 2.2;
+      stampLobe(put, tr.x + lb.dx + sway, lb.dy + Math.sin(t * .9 + lb.lag * 3) * state.wind * .6,
+                lb.scale, pal.leaf, pal.leafLit, lb.flip);
+    }
+  }
+  for (const b of world.bushes) {
+    const sway = Math.sin(t * 1.7 + b.x) * state.wind * .7;
+    for (let i = 0; i < 3; i++)
+      stampLobe(put, b.x + sway + (i - 1) * b.r * .5, b.y - b.r * .4 + (i % 2), 1, pal.leaf, pal.leafLit, b.f);
+  }
+
+  // --- birds
+  for (const b of state.birds) {
+    b.x += b.speed;
+    const flap = Math.sin(t * 9 + b.phase) > 0 ? 0 : 1;
+    const col = mix(pal.bark, pal.leaf, .3);
+    put(b.x, b.y, col);
+    put(b.x - 1, b.y - flap, col); put(b.x - 2, b.y - flap * 2, col);
+    put(b.x + 1, b.y - flap, col); put(b.x + 2, b.y - flap * 2, col);
+    b.y += Math.sin(t * .7 + b.phase) * .06;
+  }
+  state.birds = state.birds.filter(b => b.speed > 0 ? b.x < W + 20 : b.x > -20);
+
+  // --- the day strip: today's turns along the bottom of the bank
+  {
+    const n = world.day.length, bw = 2, gap = 2, right = W - 5;
+    for (let i = 0; i < n; i++) {
+      const d = world.day[n - 1 - i], x = right - i * (bw + gap);
+      if (x < 6) break;
+      const h = clamp(Math.round(Math.log10(1 + d.sec) * 3.4), 1, 8);
+      const col = d.outcome === 'failed' ? mix(pal.light, [255, 120, 90], .7)
+                : d.outcome === 'needs-you' ? mix(pal.light, [255, 200, 120], .6)
+                : pal.light;
+      for (let y = 0; y < h; y++)
+        for (let o = 0; o < bw; o++) put(x - o, H - 3 - y, col, .12 + .22 * (y / h));
+      if (d.switched) for (let o = 0; o < bw; o++) put(x - o, H - 2, mix(pal.light, [255,120,90], .85), .5);
+    }
+  }
+
+  // --- vignette
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const v = Math.hypot((x - W/2)/(W/2), (y - H/2)/(H/2));
+      const a = Math.max(0, v - .8) * .5;
+      if (a > 0) put(x, y, [3,4,10], Math.min(.38, a));
+    }
+
+  ctx.putImageData(frame, 0, 0);
+}
+
+function stampLobe(put, cx, cy, scale, leaf, leafLit, flip) {
+  const h = LOBE.length, w = LOBE[0].length;
+  for (let y = 0; y < h * scale; y++)
+    for (let x = 0; x < w * scale; x++) {
+      const ch = LOBE[(y / scale) | 0][flip ? w - 1 - ((x / scale) | 0) : (x / scale) | 0];
+      if (ch === '.') continue;
+      put(cx - w*scale/2 + x, cy - h*scale/2 + y,
+          ch === '*' ? leafLit : ch === '%' ? mix(leaf, [0,0,0], .35) : leaf);
+    }
+}
+
+// ---------------------------------------------------------------- loop
+let last = 0, frozen = null;
+const m = location.hash.match(/t=([\d.]+)/); if (m) frozen = parseFloat(m[1]) * 1000;
+
+function tick(now) {
+  requestAnimationFrame(tick);
+  if (document.hidden) return;
+  if (now - last < 50) return;                       // ~20fps is plenty
+  last = now;
+  const T = frozen != null ? frozen : now;
+
+  // motion follows state: alive while working, settled when idle
+  state.wind   += ((state.running ? 1 : .18) - state.wind) * .02;
+  state.ripple += ((state.running ? 1 : .35) - state.ripple) * .02;
+  stepReset(T);
+  if (T - state.lastBird > 45000 + Math.random() * 60000) spawnBirds(T);
+
+  render(T);
+  hudL.textContent = state.nightAmt > .5 ? '5h spent · resets 16:40'
+                                         : `5h ${Math.round((1 - state.used) * 100)}% left`;
+  hudR.textContent = 'wk 54% left';
+}
+requestAnimationFrame(tick);
+// #reset in the URL plays the reset sequence on load (used for testing)
+if (location.hash.includes('reset')) setTimeout(startReset, 200);
+// #at=SECONDS steps the reset sequence deterministically, for screenshots
+const atM = location.hash.match(/at=([\d.]+)/);
+if (atM) {
+  startReset(); state.seq.t0 = 0;
+  for (let t = 0; t < parseFloat(atM[1]) * 1000; t += 40) stepReset(t);
+}
+
+// ---------------------------------------------------------------- controls
+const $ = id => document.getElementById(id);
+$('bRun').onclick = e => { state.running = !state.running; e.target.classList.toggle('on', state.running); };
+$('bDone').onclick = () => { state.running = false; $('bRun').classList.remove('on'); spawnBirds(performance.now()); };
+$('bBirds').onclick = () => spawnBirds(performance.now());
+$('bReset').onclick = () => { startReset(); $('sUse').value = 0; $('useOut').textContent = '0%'; };
+$('sUse').oninput = e => {
+  const v = +e.target.value;
+  state.used = v / 100; state.nightAmt = v >= 100 ? 1 : 0; state.seq = null;
+  $('useOut').textContent = v + '%';
+};
+</script>

@@ -1,0 +1,363 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Waiting Room — sky preview</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b0d12; color: #8a93a6;
+         font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 24px; }
+  h1 { font-size: 13px; font-weight: 500; color: #c3cad8; margin: 0 0 4px; letter-spacing: .04em; }
+  p.lede { margin: 0 0 22px; max-width: 64ch; line-height: 1.6; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 22px; }
+  figure { margin: 0; }
+  .frame { position: relative; line-height: 0; border-radius: 6px; overflow: hidden;
+           box-shadow: 0 8px 28px rgba(0,0,0,.55); }
+  canvas { width: 100%; height: auto; image-rendering: pixelated; }
+  .hud { position: absolute; inset: 0; pointer-events: none;
+         font: 11px ui-monospace, Menlo, monospace; letter-spacing: .04em; }
+  .hud span { position: absolute; bottom: 9px; color: #eef3ff; opacity: .85;
+              text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+  .hud .left { left: 11px; } .hud .right { right: 11px; opacity: .55; }
+  figcaption { margin-top: 9px; color: #737c8f; line-height: 1.5; }
+  figcaption b { color: #aab3c5; font-weight: 500; }
+</style>
+
+<h1>Waiting Room — sky states</h1>
+<p class="lede">A lake under layered ridges. The sun rides an arc showing <em>usage left</em>:
+sunrise = full window, midday = half, sunset = empty. The hollow ring is where the clock
+says you should be; the dotted trail is where the current burn rate is heading. When the
+window is spent the moon carries the time to reset, and sets as the sun rises.</p>
+
+<div class="grid" id="grid"></div>
+
+<script>
+// ---------------------------------------------------------------- palettes
+const PALETTES = {
+  dawn: {
+    sky:  ['#131a35', '#1d2347', '#2f2a56', '#4a3160', '#6e3f62', '#9c5361', '#c97358'],
+    haze: '#c98a63', light: '#ffe2b0', glow: '#ff9d52', rays: .22,
+    ridge: ['#4b4a78', '#33315c', '#211f40'],
+    leaf: '#1e1a35', leafLit: '#312a4e', bark: '#100e20',
+    bank: '#100f1d', bankTop: '#1e1c36', water: '#1a1c38', waterLight: '#4c4c84',
+    star: '#cdd6f5', mist: '#6a5d86',
+  },
+  day: {
+    sky:  ['#2e6aa8', '#4d84bb', '#6b9ecb', '#8bb8dc', '#a9cde7', '#c3dcee', '#d8e8f2'],
+    haze: '#cfe0ec', light: '#fffbe2', glow: '#ffeeae', rays: .16,
+    ridge: ['#93b4c0', '#6d95a0', '#4a7a78'],
+    leaf: '#35624a', leafLit: '#5d8f5a', bark: '#23352c',
+    bank: '#1a2e22', bankTop: '#2f4c37', water: '#587f9e', waterLight: '#a6c9de',
+    star: '#ffffff', mist: '#b9d3e2',
+  },
+  dusk: {
+    sky:  ['#121631', '#1d1b41', '#342152', '#57265a', '#8a3555', '#c15346', '#ef8a4e'],
+    haze: '#e08a54', light: '#ffcf8a', glow: '#ff8a3c', rays: .34,
+    ridge: ['#6a4569', '#472d4e', '#291b33'],
+    leaf: '#1f1526', leafLit: '#3a2238', bark: '#130c18',
+    bank: '#140e1c', bankTop: '#281a31', water: '#2d2246', waterLight: '#7a4f6f',
+    star: '#e6ddff', mist: '#8a5a72',
+  },
+  night: {
+    sky:  ['#060a18', '#080d20', '#0c1229', '#111934', '#16203f', '#1c284c', '#233058'],
+    haze: '#26355f', light: '#e9efff', glow: '#7f9ad4', rays: .12,
+    ridge: ['#1e2a4b', '#16203a', '#0d1426'],
+    leaf: '#101a31', leafLit: '#1b2a49', bark: '#070c17',
+    bank: '#05080f', bankTop: '#0d1428', water: '#0a1128', waterLight: '#26396a',
+    star: '#ffffff', mist: '#2b3a63',
+  },
+};
+
+// ---------------------------------------------------------------- setup
+const W = 320, H = 150;
+const SHORE = 96;                 // far waterline
+const BANK  = H - 20;             // near bank top
+const ARC = { cx: 160, cy: SHORE - 26, rx: 140, ry: 56 };
+const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r => r.map(v => (v + .5) / 16));
+
+const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+const mix = (a, b, t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+function rng(seed) { let s = seed >>> 0 || 1;
+  return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+function arcXY(f) {
+  const t = Math.PI * (1 - clamp(f, 0, 1));
+  return { x: Math.round(ARC.cx + ARC.rx * Math.cos(t)),
+           y: Math.round(ARC.cy - ARC.ry * Math.sin(t)) };
+}
+
+// A leaf lobe, drawn by hand: irregular edge, a notch, a lit top-left.
+//   # mass   % shaded underside   * lit edge   . nothing
+const LOBE = [
+  '..**##..',
+  '.*#####.',
+  '*#######',
+  '########',
+  '#######%',
+  '.######%',
+  '..%###%.',
+];
+
+// ---------------------------------------------------------------- scene
+function draw(cv, st) {
+  const p = PALETTES[st.mood];
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const img = ctx.createImageData(W, H);
+  const px = img.data;
+  const R = rng(st.seed);
+  const body = arcXY(st.used);
+  const light = hex(p.light), glow = hex(p.glow), hazeC = hex(p.haze), mistC = hex(p.mist);
+  const stops = p.sky.map(hex);
+
+  const put = (x, y, rgb, a = 1) => {
+    x |= 0; y |= 0;
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const o = (y * W + x) * 4;
+    px[o]   = px[o]   * (1 - a) + rgb[0] * a;
+    px[o+1] = px[o+1] * (1 - a) + rgb[1] * a;
+    px[o+2] = px[o+2] * (1 - a) + rgb[2] * a;
+    px[o+3] = 255;
+  };
+
+  // ---- sky
+  for (let y = 0; y < SHORE; y++) {
+    for (let x = 0; x < W; x++) {
+      const d = Math.hypot((x - body.x) * .75, y - body.y);
+      let t = y / SHORE;
+      t += Math.max(0, 1 - d / 96) ** 2 * (st.body === 'moon' ? .28 : .62);
+      const horizonGlow = Math.max(0, 1 - Math.abs(y - SHORE) / 40) *
+                          Math.max(0, 1 - Math.abs(x - body.x) / 200);
+      t += horizonGlow * (st.body === 'moon' ? .12 : .4);
+      const i = clamp(t, 0, .999) * (stops.length - 1), lo = Math.floor(i);
+      put(x, y, stops[Math.min(stops.length - 1, (i - lo) > BAYER[y & 3][x & 3] ? lo + 1 : lo)]);
+    }
+  }
+
+  // ---- stars
+  if (st.stars) {
+    const sc = hex(p.star);
+    for (let i = 0; i < 130; i++) {
+      const x = R() * W, y = R() * (SHORE - 20);
+      const a = (.2 + R() * .8) * clamp(Math.hypot(x - body.x, y - body.y) / 70, .15, 1);
+      put(x, y, sc, a);
+      if (R() > .94) { put(x+1, y, sc, a*.3); put(x, y+1, sc, a*.3); }
+    }
+  }
+
+  // ---- light shafts
+  if (p.rays > 0) {
+    for (let k = 0; k < 7; k++) {
+      const spread = (k - 3) * .17 + (R() - .5) * .06, strength = p.rays * (.55 + R() * .45);
+      for (let s = 6; s < 130; s++) {
+        const x = body.x + Math.sin(spread) * s * 1.6, y = body.y + Math.cos(spread) * s;
+        if (y > SHORE) break;
+        const w = 1 + s * .05, fade = (1 - s / 130) * strength;
+        for (let o = -w; o <= w; o++) put(x + o, y, light, fade * (1 - Math.abs(o) / (w + 1)) * .5);
+      }
+    }
+  }
+
+  // ---- arc, pace ghost, projection
+  for (let i = 0; i <= 200; i += 5) { const q = arcXY(i / 200); put(q.x, q.y, light, .09); }
+  if (st.project != null)
+    for (let k = 0; k <= 48; k += 3) {
+      const q = arcXY(st.used + (st.project - st.used) * (k / 48));
+      put(q.x, q.y, light, .3);
+    }
+  if (st.ghost != null) {
+    const g = arcXY(st.ghost);
+    for (let i = 0; i < 20; i++) {
+      const t = i / 20 * Math.PI * 2;
+      put(g.x + Math.cos(t) * 4.2, g.y + Math.sin(t) * 4.2, light, .45);
+    }
+  }
+
+  // ---- sun or moon
+  discWithGlow(put, body.x, body.y, st.body === 'moon' ? 6 : 7, light, glow,
+               st.body === 'moon' ? st.phase : null, stops[stops.length - 1]);
+
+  // ---- three ridges receding into haze, mist pooling between them
+  const ridgeDefs = [
+    { top: SHORE - 34, amp: 9,  freq: .021, haze: .46, col: hex(p.ridge[0]), seed: 1.7 },
+    { top: SHORE - 22, amp: 7,  freq: .033, haze: .2,  col: hex(p.ridge[1]), seed: 4.2 },
+    { top: SHORE - 11, amp: 5,  freq: .047, haze: .02, col: hex(p.ridge[2]), seed: 8.9 },
+  ];
+  for (const rd of ridgeDefs) {
+    const col = mix(rd.col, hazeC, rd.haze), rim = mix(col, light, .1);
+    for (let x = 0; x < W; x++) {
+      const h = Math.sin(x * rd.freq + rd.seed) * rd.amp
+              + Math.sin(x * rd.freq * 2.7 + rd.seed * 3) * rd.amp * .35
+              + Math.sin(x * rd.freq * 6.1 + rd.seed) * rd.amp * .12;
+      const top = Math.round(rd.top - h);
+      const lit = Math.max(0, 1 - Math.abs(x - body.x) / 150);
+      for (let y = top; y < SHORE; y++) put(x, y, col);
+      if (lit > .1) put(x, top, rim, lit);
+      if (rd.haze < .4 && R() > .75) {                 // hint of trees on the ridge
+        const th = 1 + (R() * 2 | 0);
+        for (let y = top - th; y < top; y++) put(x, y, col);
+      }
+    }
+    // mist along the foot of this ridge
+    for (let y = rd.top + 2; y < rd.top + 14; y++)
+      for (let x = 0; x < W; x++) {
+        const a = Math.max(0, 1 - (y - rd.top - 2) / 12) * .34 *
+                  (Math.sin(x * .03 + rd.seed) * .3 + .7);
+        if (BAYER[y & 3][x & 3] < a * 1.8) put(x, y, mistC, a);
+      }
+  }
+
+  // ---- water: mirror everything above the shore
+  const waterC = hex(p.water), waterL = hex(p.waterLight);
+  const snap = new Uint8ClampedArray(px);
+  const sample = (x, y) => {
+    const o = (clamp(y | 0, 0, SHORE - 1) * W + clamp(x | 0, 0, W - 1)) * 4;
+    return [snap[o], snap[o+1], snap[o+2]];
+  };
+  for (let y = SHORE; y < BANK; y++) {
+    const depth = (y - SHORE) / (BANK - SHORE);
+    const wob = Math.sin(y * .45 + st.seed) * (.6 + depth * 2.4);
+    for (let x = 0; x < W; x++) {
+      let c = sample(x + wob, SHORE - (y - SHORE) * 1.2);
+      c = mix(c, waterC, .46 + depth * .38);
+      if (Math.sin(y * 2.1 + Math.sin(x * .03 + y * .35) * 2.6) > .955) c = mix(c, waterL, .5);
+      put(x, y, c);
+    }
+  }
+  for (let x = 0; x < W; x++) put(x, SHORE, mix(waterC, [0,0,0], .35));  // shoreline
+  for (let y = SHORE; y < BANK; y++) {          // the light's path on the water
+    const fade = 1 - (y - SHORE) / (BANK - SHORE);
+    const spread = 1.5 + (y - SHORE) * 1.1;
+    for (let d = 0; d < 2 + R() * 2; d++) {
+      const len = 2 + (R() * 4 | 0), x0 = body.x + (R() * 2 - 1) * spread;
+      for (let x = x0; x < x0 + len; x++) put(x, y, light, clamp(fade * .34 * (.4 + R() * .6), 0, .4));
+    }
+  }
+
+  // ---- near bank
+  const bank = hex(p.bank), bankTop = hex(p.bankTop);
+  for (let x = 0; x < W; x++) {
+    const top = BANK + Math.round(Math.sin(x * .07) * 1.6 + (R() > .85 ? 1 : 0));
+    for (let y = top; y < H; y++) put(x, y, y < top + 2 ? bankTop : bank);
+    if (R() > .55) {                                   // reeds and grass
+      const h = 2 + (R() * 5 | 0);
+      for (let g = 0; g < h; g++) put(x, top - g, g > h - 2 ? bank : bankTop, .9 - g * .12);
+    }
+  }
+
+  // ---- leafy trees on the bank: big ones cropped at the edges, a couple inland
+  const leaf = hex(p.leaf), leafLit = hex(p.leafLit), bark = hex(p.bark);
+  const trees = [
+    { x: 8,       h: 34, spread: 17, lobes: 16 },
+    { x: 44,      h: 24, spread: 13, lobes: 10 },
+    { x: W - 14,  h: 38, spread: 19, lobes: 18 },
+    { x: W - 54,  h: 22, spread: 12, lobes: 9 },
+  ];
+  for (const t of trees) tree(put, R, t, BANK + 2, leaf, leafLit, bark, body);
+  for (let i = 0; i < 16; i++) {                       // bushes along the waterline
+    const bx = R() * W;
+    if (Math.abs(bx - body.x) < 26 && R() > .4) continue;   // keep the light path clear
+    bush(put, R, bx, BANK + 1 + R() * 3, 5 + R() * 6, leaf, leafLit);
+  }
+
+  // ---- vignette
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const v = Math.hypot((x - W/2) / (W/2), (y - H/2) / (H/2));
+      const a = Math.max(0, v - .8) * .5;
+      if (a > 0) put(x, y, [3, 4, 10], Math.min(.38, a));
+    }
+
+  ctx.putImageData(img, 0, 0);
+}
+
+// ---------------------------------------------------------------- pieces
+function discWithGlow(put, cx, cy, r, col, glow, phase, skyCol) {
+  for (let y = -r - 12; y <= r + 12; y++)
+    for (let x = -r - 12; x <= r + 12; x++) {
+      const d = Math.hypot(x, y);
+      if (d > r && d <= r + 12) put(cx + x, cy + y, glow, Math.max(0, 1 - (d - r) / 12) ** 2 * .5);
+    }
+  for (let y = -r; y <= r; y++)
+    for (let x = -r; x <= r; x++) {
+      if (x*x + y*y > r*r) continue;
+      let lit = true;
+      if (phase != null && phase < 1 && (x + (1 - phase) * 2 * r) ** 2 + y*y <= r*r) lit = false;
+      put(cx + x, cy + y, lit ? col : mix(skyCol, col, .12));
+    }
+}
+
+// Stamp the hand-drawn lobe, scaled, with its lit side facing the light.
+function stampLobe(put, cx, cy, scale, leaf, leafLit, flip) {
+  const h = LOBE.length, w = LOBE[0].length;
+  for (let y = 0; y < h * scale; y++)
+    for (let x = 0; x < w * scale; x++) {
+      const ch = LOBE[(y / scale) | 0][flip ? w - 1 - ((x / scale) | 0) : (x / scale) | 0];
+      if (ch === '.') continue;
+      const col = ch === '*' ? leafLit : ch === '%' ? mix(leaf, [0,0,0], .35) : leaf;
+      put(cx - (w * scale) / 2 + x, cy - (h * scale) / 2 + y, col);
+    }
+}
+
+// A leafy tree: trunk, two or three branches, lobes clustered at the tips.
+function tree(put, R, t, groundY, leaf, leafLit, bark, body) {
+  const lean = (R() - .5) * .35;
+  const trunkTop = groundY - t.h;
+  for (let y = groundY; y > trunkTop; y--) {          // trunk, tapering
+    const f = (groundY - y) / t.h;
+    const x = t.x + lean * (groundY - y);
+    const w = Math.max(1, Math.round(3 * (1 - f * .7)));
+    for (let o = 0; o < w; o++) put(x + o, y, o === 0 ? mix(bark, leafLit, .25) : bark);
+  }
+  const branches = [];
+  for (let b = 0; b < 3; b++) {                        // branches out of the upper trunk
+    const at = trunkTop + t.h * (.12 + b * .16) + R() * 4;
+    const dir = b % 2 ? 1 : -1, len = t.spread * (.5 + R() * .6);
+    let x = t.x + lean * (groundY - at), y = at;
+    for (let s = 0; s < len; s++) {
+      x += dir * .9; y -= .45 + R() * .2;
+      put(x, y, bark);
+    }
+    branches.push({ x, y });
+  }
+  branches.push({ x: t.x + lean * (groundY - trunkTop), y: trunkTop - 2 });
+  for (let i = 0; i < t.lobes; i++) {                  // canopy, densest at the tips
+    const br = branches[(R() * branches.length) | 0];
+    const cx = br.x + (R() * 16 - 8), cy = br.y + (R() * 12 - 7);
+    const scale = t.h > 40 ? (R() > .5 ? 2 : 1) : 1;
+    stampLobe(put, cx, cy, scale, leaf, leafLit, br.x < t.x);
+  }
+}
+
+function bush(put, R, x, y, r, leaf, leafLit) {
+  for (let i = 0; i < 3; i++)
+    stampLobe(put, x + (R() * r - r / 2), y - r * .4 + (R() * 3 - 1.5), 1, leaf, leafLit, R() > .5);
+}
+
+// ---------------------------------------------------------------- states
+const STATES = [
+  { mood: 'dawn', body: 'sun', used: .06, ghost: .02, project: .34, stars: true, seed: 3,
+    title: 'Fresh window', note: 'just past reset — the sun is barely up',
+    hud: ['5h 94% left', 'wk 61% left'] },
+  { mood: 'day', body: 'sun', used: .48, ghost: .56, project: .84, stars: false, seed: 17,
+    title: 'Midday', note: 'half spent, a little behind the clock — comfortable',
+    hud: ['5h 52% left', 'wk 54% left'] },
+  { mood: 'dusk', body: 'sun', used: .87, ghost: .63, project: 1, stars: true, seed: 9,
+    title: 'Dusk', note: 'ahead of the clock: at this rate the sun sets before reset',
+    hud: ['5h 13% left', 'wk 41% left'] },
+  { mood: 'night', body: 'moon', used: .42, phase: .6, stars: true, seed: 31,
+    title: 'Night', note: 'window spent — the moon carries the time until reset',
+    hud: ['5h spent · resets 16:40', 'wk 38% left'] },
+];
+
+const grid = document.getElementById('grid');
+for (const s of STATES) {
+  const fig = document.createElement('figure');
+  fig.innerHTML = `<div class="frame">
+      <canvas width="${W}" height="${H}"></canvas>
+      <div class="hud"><span class="left">${s.hud[0]}</span><span class="right">${s.hud[1]}</span></div>
+    </div>
+    <figcaption><b>${s.title}</b> — ${s.note}</figcaption>`;
+  grid.append(fig);
+  draw(fig.querySelector('canvas'), s);
+}
+</script>
