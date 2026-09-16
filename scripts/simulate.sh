@@ -17,7 +17,7 @@ SECS="${2:-8}"
 
 trap '"$ROOT/scripts/stop.sh" silent </dev/null; exit 130' INT
 
-echo "working ${SECS}s  (track=${CLAUDE_PLUGIN_OPTION_TRACK:-breathing})"
+echo "working ${SECS}s  (track=${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm})"
 "$ROOT/scripts/start.sh" </dev/null
 sleep "$SECS"
 echo "-> $END"

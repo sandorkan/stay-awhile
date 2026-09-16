@@ -136,14 +136,39 @@ def bowl(freq, amp, bright=1.0, dur=20.0):
     return [amp * v / 3.0 for v in out]
 
 
-def loop_breathing():
-    """10s cycle: 4s in, 6s out, marked by singing bowls. A higher bowl says
-    breathe in, a lower, softer one says breathe out. Their tails wrap into
-    the next cycle the way a real bowl keeps ringing under the next strike."""
-    buf = [0.0] * (SR * 10)
-    place(buf, bowl(hz(62), 0.55), 0.0)              # D4, in
-    place(buf, bowl(hz(57), 0.42, bright=0.6), 4.0)  # A3, out
-    return buf
+def tap(amp):
+    """A soft wooden tap: two inharmonic partials that die almost at once."""
+    return [amp * min(1.0, i / (SR * 0.002)) * math.exp(-i / (SR * 0.02))
+            * (math.sin(2 * math.pi * 740 * i / SR)
+               + 0.5 * math.sin(2 * math.pi * 1960 * i / SR)) / 1.5
+            for i in range(int(SR * 0.15))]
+
+
+def breathing(phases):
+    """One breath cycle, looped, so the file length is the breath length.
+    A struck bowl marks the start of each phase, and both strikes are equally
+    loud so each is clearly heard; pitch tells them apart:
+      in      higher bowl (D4)
+      top-up  the higher bowl again, a little lighter (the sigh's second inhale)
+      out     lower bowl (A3)
+      hold    a soft wooden tap
+    Rings wrap past the loop point, so each strike sounds over the last one's
+    tail the way a real bowl keeps ringing."""
+    buf = [0.0] * round(SR * sum(d for _, d in phases))
+    at = 0.0
+    for kind, d in phases:
+        if kind == "in":
+            place(buf, bowl(hz(62), 0.55), at)
+        elif kind == "top-up":
+            place(buf, bowl(hz(62), 0.4), at)
+        elif kind == "out":
+            place(buf, bowl(hz(57), 0.55), at)
+        elif kind == "hold":
+            place(buf, tap(0.7), at)
+        at += d
+    # Closer strikes pile up more ring; level every pattern to the same loudness.
+    rms = math.sqrt(sum(v * v for v in buf) / len(buf))
+    return [v * 0.12 / rms for v in buf]
 
 
 def thump(f_hi, f_lo, dur, amp):
@@ -364,7 +389,11 @@ SOUNDS = {
     "needs-you": cue_needs_you,
     "look-away": cue_look_away,
     "come-back": cue_come_back,
-    "breathing": loop_breathing,
+    "breathing/4-6-calm": lambda: breathing([("in", 4), ("out", 6)]),
+    "breathing/5.5-5.5-resonance": lambda: breathing([("in", 5.5), ("out", 5.5)]),
+    "breathing/4-4-4-4-box": lambda: breathing(
+        [("in", 4), ("hold", 4), ("out", 4), ("hold", 4)]),
+    "breathing/sigh": lambda: breathing([("in", 2), ("top-up", 1), ("out", 6)]),
     "heartbeat": loop_heartbeat,
     "ambient/hold-music": lambda: ambient(HOLD_BARS, HOLD_BAR, HOLD_STEP, HOLD_SEED),
     "ambient/dusk": lambda: ambient(DUSK, 8.0, 0.5, seed=31, rest=0.3),

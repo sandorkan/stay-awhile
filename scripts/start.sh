@@ -14,7 +14,7 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 
 touch "$ACTIVE/$(session_id)" 2>/dev/null
 
-TRACK="${CLAUDE_PLUGIN_OPTION_TRACK:-breathing}"
+TRACK="${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm}"
 
 # Validate against a real file rather than trusting the configured string.
 # The value comes from a settings file and lands in a path; tracks live in

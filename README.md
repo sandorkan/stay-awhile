@@ -33,12 +33,12 @@ Run `/config` and pick a track, or set it at install time:
 
 ```bash
 claude plugin install working-sounds@working-sounds-marketplace \
-  --config track=breathing --config volume=0.3
+  --config track=breathing/5.5-5.5-resonance --config volume=0.3
 ```
 
 | Option          | Default     | Notes |
 |-----------------|-------------|-------|
-| `track`         | `breathing` | A loop from the table below, e.g. `8-bit/harbor`; `shuffle-ambient`, `shuffle-8-bit` or `shuffle-soundscapes` for a new random one from that category each prompt; or `none` |
+| `track`         | `breathing/4-6-calm` | A loop from the table below, e.g. `8-bit/harbor`; `shuffle-ambient`, `shuffle-8-bit` or `shuffle-soundscapes` for a new random one from that category each prompt; or `none` |
 | `volume`        | `0.4`       | 0.0–1.0, applied where the player supports it |
 | `cues`          | `true`      | The done / failed / needs-you one-shots |
 | `eye_cue_every` | `8`         | Look-away nudge every Nth wait. `0` disables |
@@ -57,8 +57,47 @@ and keeps a song for the whole turn:
 | `ambient/hold-music`, `ambient/dusk`, `ambient/lantern`, `ambient/drift` | Slow synthesized music: pad, bass, vibraphone-ish arpeggio |
 | `8-bit/town`, `8-bit/harbor`, `8-bit/snowfield`, `8-bit/ruins` | The same kind of songs on NES-style voices: triangle bass, pulse-wave pad and arpeggio, fake echo. `town` is hold-music's composition |
 | `soundscapes/rain`, `soundscapes/forest`, `soundscapes/beach`, `soundscapes/fireplace` | Recordings |
-| `breathing` | Paces 4-in / 6-out with singing bowls: a higher bowl to breathe in, a lower one to breathe out |
+| `breathing/4-6-calm`, `breathing/5.5-5.5-resonance`, `breathing/4-4-4-4-box`, `breathing/sigh` | Paced breathing, seconds per phase in the name (see below). No shuffle: switching patterns between prompts would break the rhythm |
 | `heartbeat` | A soft lub-dub at 60 bpm, for when music is worse than the wait |
+
+**Breathing** — a struck singing bowl marks the start of every phase: the
+higher bowl means breathe in, the lower bowl means breathe out, both equally
+loud. A soft wooden tap marks a hold. In `sigh`, the higher bowl sounds twice,
+the second a little lighter, for the short second inhale.
+
+| Pattern | Rhythm | |
+|---------|--------|---|
+| `4-6-calm` | in 4 · out 6 | Six breaths a minute with a longer exhale |
+| `5.5-5.5-resonance` | in 5.5 · out 5.5 | "Resonance" or "coherent" breathing, about 5.5 breaths a minute |
+| `4-4-4-4-box` | in 4 · hold 4 · out 4 · hold 4 | Box breathing |
+| `sigh` | in 2 · top-up 1 · out 6 | Cyclic sighing: a nose inhale, a short second inhale to fill up, then a long, slow exhale |
+
+What the evidence supports, plainly:
+
+- **Slow breathing around six breaths a minute** (`4-6-calm` and
+  `5.5-5.5-resonance` both sit there) has the best support of these. It
+  reliably raises heart-rate variability while you do it, and reviews of
+  HRV-biofeedback studies find small-to-moderate reductions in stress and
+  anxiety. Most studies are small and short-term. The exact "resonance" rate
+  differs from person to person, roughly 4.5–6.5 breaths a minute, so
+  5.5 is a sensible middle rather than a personal optimum.
+- **A longer exhale than inhale** is widely taught as extra calming. The idea
+  is plausible, but the direct evidence that it beats equal-length slow
+  breathing is mixed.
+- **Cyclic sighing and box breathing** were compared in one randomized study
+  (Balban et al., 2023, about 110 people, five minutes a day for a month).
+  All breathing groups improved mood somewhat more than a mindfulness group;
+  cyclic sighing did best on positive mood. That's one study, and none of
+  these patterns has been tested as background audio over long stretches.
+- **Box breathing** is popular with the military and first responders; most
+  of its reputation comes from that use rather than from research on box
+  breathing specifically.
+
+None of this is treatment for anything. You don't have to follow it for a
+whole turn, and if you feel light-headed, stop and breathe normally.
+4-7-8 and fast "power breathing" patterns are left out on purpose: the first
+is meant for a few rounds before sleep, not minutes at a desk, and the second
+is hyperventilation.
 
 **Cues** — `done` rises and resolves, `failed` falls, `needs-you` is a double
 knock. Different shapes rather than different pitches, so they're

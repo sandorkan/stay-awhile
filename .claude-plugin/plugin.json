@@ -16,9 +16,10 @@
         "ambient/hold-music", "ambient/dusk", "ambient/lantern", "ambient/drift",
         "8-bit/town", "8-bit/harbor", "8-bit/snowfield", "8-bit/ruins",
         "soundscapes/rain", "soundscapes/forest", "soundscapes/beach", "soundscapes/fireplace",
-        "breathing", "heartbeat", "none"
+        "breathing/4-6-calm", "breathing/5.5-5.5-resonance", "breathing/4-4-4-4-box", "breathing/sigh",
+        "heartbeat", "none"
       ],
-      "default": "breathing"
+      "default": "breathing/4-6-calm"
     },
     "volume": {
       "type": "number",
