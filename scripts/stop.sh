@@ -12,9 +12,14 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 
 CUE="${1:-silent}"
 
-SID="$(session_id)"
+INPUT="$(cat)"
+SID="$(printf '%s' "$INPUT" | session_id)"
 rm -f "$ACTIVE/$SID"
-wait_end "$SID" "$CUE"
+
+[ "$CUE" = "needs-you" ] && count_bump "$(perm_count "$SID")"
+wait_end "$SID" "$CUE" \
+  "$(printf '%s' "$INPUT" | json_str transcript_path)" \
+  "$(printf '%s' "$INPUT" | json_str cwd)"
 
 if ! any_active; then
   kill_pidfile "$LOOP_PID"

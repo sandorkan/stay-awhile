@@ -32,8 +32,18 @@ behaviour and options.
   long waits actually are before building anything that reacts to their length.
 - `needs-you` deliberately keeps the start file, so one turn logs twice: the
   stretch up to the permission prompt, then the whole turn.
-- Hooks read stdin once, so `session_id` is captured into `SID` at the top of
-  start.sh and stop.sh. Calling it twice returns `default` the second time.
+- Hooks read stdin once. start.sh and stop.sh capture it into `INPUT`, then
+  parse fields out of that with `json_str`; calling a parser twice on stdin
+  returns nothing the second time.
+- Prompt metrics (words, images, paths…) come from `prompt-metrics.py`, which
+  reads the last real user message in the transcript — tool-result messages
+  don't count. It runs at turn end, not on UserPromptSubmit: that event blocks
+  the prompt, and the prompt isn't in the transcript yet anyway. It reads only
+  the last 512 KB, so a 131 MB transcript still costs ~80 ms.
+- Missing python3 or transcript logs zeros in columns 5-13. Zero means
+  "couldn't measure" — keep that distinction in anything that reads the log.
+- `wait_start` flags every other in-flight session as switched away from, so
+  the switch is recorded against the turn that got abandoned, not the new one.
 
 ## Sounds
 

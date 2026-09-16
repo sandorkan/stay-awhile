@@ -82,11 +82,17 @@ pick_track() {
 
 # --- sessions ---------------------------------------------------------------
 
-# session_id  — read from the hook's JSON on stdin. Kept to [A-Za-z0-9_-]
-# because it becomes a filename.
+# json_str <key>  — pull a plain string field out of the hook's JSON on stdin.
+# Good enough for the flat fields we want (ids and paths, never the prompt).
+json_str() {
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+}
+
+# session_id  — from the hook's JSON on stdin. Kept to [A-Za-z0-9_-] because it
+# becomes a filename.
 session_id() {
   local id
-  id="$(sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 | tr -cd 'A-Za-z0-9_-')"
+  id="$(json_str session_id | tr -cd 'A-Za-z0-9_-')"
   echo "${id:-default}"
 }
 
@@ -98,24 +104,100 @@ any_active() {
   [ -n "$(ls -A "$ACTIVE" 2>/dev/null)" ]
 }
 
-# --- how long the waits actually are ----------------------------------------
-# One tab-separated line per turn in $WAITS: when it ended, how many seconds it
-# ran, how it ended, which session. A local file, never sent anywhere. It
-# answers what this plugin otherwise guesses at — how much of a day is spent
-# waiting, and whether a typical wait is worth leaving the desk for.
+# --- what the waits are actually like ---------------------------------------
+# One tab-separated line per turn in $WAITS. Counts and timings only: no prompt
+# text, no file contents, no repo path beyond its folder name. A local file,
+# never sent anywhere. Columns, in order:
+#
+#   1 ended          when the turn ended, ISO 8601
+#   2 seconds        how long it ran
+#   3 outcome        done | failed | needs-you | silent
+#   4 session        Claude Code's session id
+#   5 words          the prompt, in words
+#   6 chars          the prompt, in characters
+#   7 images         images attached to it
+#   8 paths          file paths mentioned
+#   9 code_blocks    fenced code blocks
+#  10 urls
+#  11 bullets        bulleted or numbered lines
+#  12 questions      question marks
+#  13 is_slash       1 if the prompt was a /command
+#  14 tools          tool calls in the turn
+#  15 permissions    permission prompts during it
+#  16 think_secs     gap between the last turn ending and this prompt
+#  17 switched_away  1 if you prompted another session while this one ran
+#  18 concurrent     other turns already in flight when this one started
+#  19 project        folder name of the working directory
+#
+# 5-13 come from prompt-metrics.py, which reads the transcript's last user
+# message. Zeros mean "couldn't measure" (no python3, no transcript), never 0.
 
-wait_start() { date +%s > "$STARTED/$1" 2>/dev/null; }
+count_bump() {
+  local n
+  n="$(cat "$1" 2>/dev/null)"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  echo $((n + 1)) > "$1" 2>/dev/null
+}
 
-# wait_end <session> <outcome>  — needs-you keeps the start time, because the
-# turn isn't over: it logs the stretch up to the prompt and keeps counting.
+count_get() {
+  local n
+  n="$(cat "$1" 2>/dev/null)"
+  case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
+}
+
+tool_count() { echo "$DATA/count/$1.tools"; }
+perm_count() { echo "$DATA/count/$1.perms"; }
+
+# wait_start <session>  — begins a turn: notes the time, how many other turns
+# were already running, and flags those as switched away from.
+wait_start() {
+  mkdir -p "$DATA/count" "$DATA/switched" 2>/dev/null
+  local other concurrent=0
+  for other in "$STARTED"/*; do
+    [ -f "$other" ] || continue
+    [ "${other##*/}" = "$1" ] && continue
+    concurrent=$((concurrent + 1))
+    # You just prompted here while that one was still working.
+    : > "$DATA/switched/${other##*/}" 2>/dev/null
+  done
+  local last think=0
+  last="$(cat "$DATA/count/$1.lastend" 2>/dev/null)"
+  case "$last" in ''|*[!0-9]*) ;; *) think=$(( $(date +%s) - last )) ;; esac
+  [ "$think" -lt 0 ] && think=0
+  printf '%s %s %s\n' "$(date +%s)" "$concurrent" "$think" > "$STARTED/$1" 2>/dev/null
+  : > "$(tool_count "$1")" 2>/dev/null
+  : > "$(perm_count "$1")" 2>/dev/null
+}
+
+# wait_end <session> <outcome> [transcript] [cwd]  — needs-you keeps the start
+# time, because the turn isn't over: it logs the stretch up to the prompt and
+# keeps counting.
 wait_end() {
-  local began
-  began="$(cat "$STARTED/$1" 2>/dev/null)"
+  local began concurrent think
+  read -r began concurrent think < "$STARTED/$1" 2>/dev/null
   case "$began" in ''|*[!0-9]*) return 0 ;; esac
-  # ponytail: one ~50-byte line per turn, never rotated. Trim it if it matters.
-  printf '%s\t%s\t%s\t%s\n' "$(date +%FT%T%z)" "$(( $(date +%s) - began ))" "$2" "$1" \
+
+  local metrics="0	0	0	0	0	0	0	0	0"
+  if [ -n "$3" ] && [ -f "$3" ] && command -v python3 >/dev/null 2>&1; then
+    metrics="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/prompt-metrics.py" "$3" 2>/dev/null)" \
+      || metrics="0	0	0	0	0	0	0	0	0"
+  fi
+
+  local switched=0
+  [ -f "$DATA/switched/$1" ] && switched=1
+
+  # ponytail: one ~90-byte line per turn, never rotated. Trim it if it matters.
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date +%FT%T%z)" "$(( $(date +%s) - began ))" "$2" "$1" \
+    "$metrics" \
+    "$(count_get "$(tool_count "$1")")" "$(count_get "$(perm_count "$1")")" \
+    "${think:-0}" "$switched" "${concurrent:-0}" "$(basename "${4:-unknown}")" \
     >> "$WAITS" 2>/dev/null
-  [ "$2" = "needs-you" ] || rm -f "$STARTED/$1"
+
+  if [ "$2" != "needs-you" ]; then
+    date +%s > "$DATA/count/$1.lastend" 2>/dev/null
+    rm -f "$STARTED/$1" "$DATA/switched/$1" "$(tool_count "$1")" "$(perm_count "$1")"
+  fi
   return 0
 }
 

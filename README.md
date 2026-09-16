@@ -161,24 +161,45 @@ down rather than popular.
 
 ## How long are the waits, really
 
-Every turn appends one tab-separated line to `~/.claude/waiting-room/waits.log`:
-when it ended, how many seconds it ran, how it ended, which session.
+Every turn appends one tab-separated line to `~/.claude/waiting-room/waits.log`.
+Counts and timings only: no prompt text, no file contents, no path beyond the
+project's folder name. Local file, goes nowhere, delete it whenever.
 
-```
-2026-09-16T11:26:35+0200	42	done	abc123
-```
+| # | Column | |
+|---|--------|---|
+| 1 | `ended` | when the turn ended |
+| 2 | `seconds` | how long it ran |
+| 3 | `outcome` | `done`, `failed`, `needs-you`, `silent` |
+| 4 | `session` | Claude Code's session id |
+| 5–6 | `words`, `chars` | how long the prompt was |
+| 7 | `images` | images attached to it |
+| 8–13 | `paths`, `code_blocks`, `urls`, `bullets`, `questions`, `is_slash` | how the prompt was shaped |
+| 14–15 | `tools`, `permissions` | tool calls, and permission prompts during the turn |
+| 16 | `think_secs` | gap between the last turn ending and this prompt |
+| 17 | `switched_away` | 1 if you prompted another session while this one ran |
+| 18 | `concurrent` | other turns already running when this one started |
+| 19 | `project` | folder name of the working directory |
+
+Columns 5–13 are measured from the transcript's last user message. Zeros there
+mean "couldn't measure" (no `python3`, no transcript), not "none".
 
 A turn stopped by a permission prompt logs a `needs-you` line and keeps
 counting, so you see both the stretch before the prompt and the whole turn.
-The file is local and goes nowhere. Delete it whenever; it's recreated.
 
 ```bash
-awk -F'\t' '{n++; s+=$2; if ($2>m) m=$2}
-  END {printf "%d turns, %.0f min waiting, mean %.0fs, longest %ds\n", n, s/60, s/n, m}' \
-  ~/.claude/waiting-room/waits.log
+cd ~/.claude/waiting-room
 
-# how many waits are long enough to leave the desk for
-awk -F'\t' '$2 > 120' ~/.claude/waiting-room/waits.log | wc -l
+# the shape of your day
+awk -F'\t' '{n++; s+=$2; if ($2>m) m=$2; if ($2>120) long++}
+  END {printf "%d turns, %.0f min waiting, mean %.0fs, longest %ds, %d over 2 min\n",
+       n, s/60, s/n, m, long}' waits.log
+
+# mid-task switching: how often, and what you were leaving
+awk -F'\t' '$17==1 {n++; s+=$2} END {printf "%d switches, average turn %.0fs\n", n, s/n}' waits.log
+
+# do longer prompts mean fewer corrections? (a turn re-prompted within 20s)
+awk -F'\t' 'NR>1 && $16<20 && $16>=0 {short[bucket]++} {bucket = ($5<25 ? "under 25 words" : "25+ words"); all[bucket]++}
+  END {for (b in all) printf "%-15s %d turns, %d quick re-prompts\n", b, all[b], short[b]}' waits.log
 ```
 
 ## Requirements

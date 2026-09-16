@@ -12,10 +12,16 @@
 
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 
-SID="$(session_id)"
+# Hook JSON arrives on stdin and can only be read once.
+INPUT="$(cat)"
+SID="$(printf '%s' "$INPUT" | session_id)"
 touch "$ACTIVE/$SID" 2>/dev/null
-# A resume is the same turn carrying on, so it doesn't restart the clock.
-[ "$1" = "resume" ] || wait_start "$SID"
+
+if [ "$1" = "resume" ]; then
+  count_bump "$(tool_count "$SID")"  # one tool call done; the turn carries on
+else
+  wait_start "$SID"
+fi
 
 TRACK="${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm}"
 
