@@ -23,6 +23,10 @@
   label { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
   input[type=range] { width: min(220px, 45vw); }
   button:focus-visible, input:focus-visible { outline: 2px solid #e8bda0; outline-offset: 4px; }
+  /* the floating window holds only the scene */
+  body.pip { padding: 0; background: #000; }
+  body.pip .frame { width: 100vw; max-width: none; border-radius: 0; box-shadow: none; }
+  body.pip canvas { width: 100vw; height: auto; display: block; }
   @media (max-width: 600px) { body { padding: 12px; } .hud { font-size: 10px; } .hud span { bottom: 8px; } }
   .day-strip { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
     width: 40%; padding: 8px 10px 5px; box-sizing: border-box; line-height: 1.3;
@@ -30,10 +34,10 @@
     color: #e9ddc3; text-align: center; }
   .turn-bars { display: grid; grid-template-columns: repeat(var(--turn-count), minmax(0, 1fr));
     column-gap: .52%; height: clamp(24px, 3vw, 42px); align-items: stretch; }
-  .turn-bar { position: relative; display: flex; align-items: flex-end; justify-content: stretch;
+  .turn-bar { position: relative; display: flex; align-items: flex-end; justify-content: center;
     padding: 0 0 5px; margin: 0; min-width: 0; border: 0; border-radius: 0;
     background: transparent; cursor: pointer; }
-  .turn-bar::before { content: ''; width: 100%; height: var(--bar-height);
+  .turn-bar::before { content: ''; width: min(100%, 7px); height: var(--bar-height);
     background: #eadbc0; opacity: .78; }
   .turn-bar[data-outcome="failed"]::before { background: #efa27e; }
   .turn-bar[data-outcome="needs-you"]::before { background: #eac780; }
@@ -42,32 +46,47 @@
   .turn-bar:hover, .turn-bar:focus-visible { background: rgba(234,219,192,.10); }
   .turn-bar:hover::before, .turn-bar:focus-visible::before { opacity: 1; }
   .turn-bar:focus-visible { outline: 1px solid #eadbc0; outline-offset: 2px; }
+  .day-strip[hidden] { display: none; }
+  .strip-toggle { position: absolute; right: 8px; top: 8px; z-index: 2;
+    width: 18px; height: 18px; padding: 0; line-height: 1; cursor: pointer;
+    color: #e9ddc3; background: rgba(6,17,22,.5); border: 1px solid rgba(233,221,195,.25);
+    border-radius: 3px; font: 11px ui-monospace, Menlo, monospace; opacity: 0;
+    transition: opacity .18s ease; }
+  .frame:hover .strip-toggle, .strip-toggle:focus-visible { opacity: .85; }
+  .strip-toggle:hover { opacity: 1; }
   .day-count { display: block; margin-top: 2px; font-size: 10px; opacity: .85; }
   .turn-tooltip { position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
     width: max-content; max-width: 260px; padding: 7px 10px; border-radius: 4px;
     background: rgba(9,20,26,.96); color: #f2e8d7; font-size: 11px; line-height: 1.5;
     box-shadow: 0 2px 10px #0005; pointer-events: none; }
+  /* the floating window holds only the scene */
+  body.pip { padding: 0; background: #000; }
+  body.pip .frame { width: 100vw; max-width: none; border-radius: 0; box-shadow: none; }
+  body.pip canvas { width: 100vw; height: auto; display: block; }
   @media (max-width: 600px) { .day-strip { bottom: 28px; width: 64%; padding: 5px 8px 3px; }
     .turn-bars { height: 22px; } .day-count { font-size: 9px; } .turn-tooltip { max-width: 220px; } }
   .note { margin-top: 12px; max-width: 70ch; line-height: 1.6; }
 </style>
 
 <h1>Waiting Room — live scene</h1>
-<div class="frame">
+<div class="stage"><div class="frame">
   <canvas id="cv" width="480" height="225" role="img" aria-label="Animated lake landscape showing the current usage window"></canvas>
   <div class="day-strip" role="group" aria-label="Turn history. Use left and right arrow keys to explore turns.">
     <div class="turn-bars" id="turnBars"></div>
     <span class="day-count" id="dayCount"></span>
     <div class="turn-tooltip" id="turnTooltip" role="tooltip" hidden></div>
   </div>
+  <button type="button" class="strip-toggle" id="stripToggle"
+          title="Show or hide the turn history (b)" aria-label="Toggle turn history">▁</button>
   <div class="hud"><span class="left" id="hudL"></span><span class="right" id="hudR"></span></div>
-</div>
+</div></div>
 <div class="panel">
   <button id="bRun" class="on">turn running</button>
   <button id="bDone">finish turn (birds)</button>
   <button id="bReset">reset window (sunrise)</button>
   <button id="bBirds">send birds</button>
   <button id="bRings">send lake rings</button>
+  <button id="bPop" hidden>pop out ⧉</button>
   <label>usage <input type="range" id="sUse" min="0" max="100" value="18"> <span id="useOut">18%</span></label>
 </div>
 <p class="note">Movement carries meaning: leaves and water move while a turn runs, everything
@@ -719,14 +738,20 @@ if (LIVE) {
   document.querySelector('.panel')?.classList.add('live');
 }
 
+// The floating window, when one is open. Declared here because the loop
+// below schedules frames from it.
+let pipWindow = null;
+
 // ---------------------------------------------------------------- loop
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let last = 0, frozen = null;
 const m = location.hash.match(/t=([\d.]+)/); if (m) frozen = parseFloat(m[1]) * 1000;
 
+function schedule() { (pipWindow || window).requestAnimationFrame(tick); }
+
 function tick(now) {
-  requestAnimationFrame(tick);
-  if (document.hidden) return;
+  schedule();
+  if (!pipWindow && document.hidden) return;
   if (now - last < 50) return;                       // ~20fps is plenty
   last = now;
   const T = frozen != null ? frozen : now;
@@ -748,7 +773,7 @@ function tick(now) {
     setHud(hudR, 'wk 54% left');
   }
 }
-requestAnimationFrame(tick);
+schedule();
 // #reset in the URL plays the reset sequence on load (used for testing)
 if (location.hash.includes('reset')) setTimeout(startReset, 200);
 // #at=SECONDS steps the reset sequence deterministically, for screenshots
@@ -758,6 +783,49 @@ if (atM) {
   for (let t = 0; t < parseFloat(atM[1]) * 1000; t += 40) stepReset(t);
 }
 
+// ---------------------------------------------------------------- pop-out
+// Document Picture-in-Picture gives a real always-on-top window with our own
+// DOM in it — no install, no packaging. Chrome and Edge only; elsewhere the
+// button stays hidden and the page works as a tab.
+const frameEl = document.querySelector('.frame');
+
+async function popOut() {
+  if (pipWindow) { pipWindow.focus(); return; }
+  pipWindow = await documentPictureInPicture.requestWindow({ width: 520, height: 260 });
+  for (const style of document.querySelectorAll('style'))
+    pipWindow.document.head.append(style.cloneNode(true));
+  pipWindow.document.title = 'Waiting Room';
+  pipWindow.document.body.classList.add('pip');
+  pipWindow.document.body.append(frameEl);        // the canvas keeps rendering: same element
+  pipWindow.document.addEventListener('keydown', stripKey);
+  pipWindow.addEventListener('pagehide', () => {
+    document.querySelector('.stage').append(frameEl);
+    pipWindow = null;
+    schedule();                                    // back to this window's clock
+  });
+  schedule();
+}
+
+// ---------------------------------------------------------------- turn strip toggle
+// The floating window has no control panel, so the toggle sits in the scene
+// and answers to `b` in whichever window has focus.
+const dayStrip = document.querySelector('.day-strip');
+let stripShown = true;
+try { stripShown = localStorage.getItem('wr-strip') !== 'off'; } catch (e) {}
+
+function setStrip(on) {
+  stripShown = on;
+  dayStrip.hidden = !on;
+  const toggle = document.getElementById('stripToggle');
+  toggle.textContent = on ? '▁' : '▔';
+  toggle.setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem('wr-strip', on ? 'on' : 'off'); } catch (e) {}
+}
+setStrip(stripShown);
+document.getElementById('stripToggle').onclick = () => setStrip(!stripShown);
+const stripKey = e => { if (e.key === 'b' && !e.metaKey && !e.ctrlKey) setStrip(!stripShown); };
+document.addEventListener('keydown', stripKey);
+
 // ---------------------------------------------------------------- controls
 const $ = id => document.getElementById(id);
 $('bRun').onclick = e => { state.running = !state.running; e.target.classList.toggle('on', state.running); };
@@ -765,6 +833,10 @@ $('bDone').onclick = () => { state.running = false; $('bRun').classList.remove('
 $('bBirds').onclick = () => spawnBirds(performance.now());
 $('bRings').onclick = () => spawnLakeRings(frozen!=null ? frozen : performance.now());
 $('bReset').onclick = () => { startReset(); $('sUse').value = 0; $('useOut').textContent = '0%'; };
+if ('documentPictureInPicture' in window) {
+  $('bPop').hidden = false;
+  $('bPop').onclick = () => popOut().catch(() => {});
+}
 $('sUse').oninput = e => {
   const v = +e.target.value;
   state.used = v / 100; state.nightAmt = v >= 100 ? 1 : 0; state.seq = null;
