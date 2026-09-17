@@ -1,31 +1,64 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Waiting Room — live scene</title>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0b0d12; color: #8a93a6; padding: 24px;
          font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
   h1 { font-size: 13px; font-weight: 500; color: #c3cad8; margin: 0 0 14px; letter-spacing: .04em; }
-  .frame { position: relative; width: 960px; max-width: 100%; line-height: 0;
+  .frame { position: relative; width: 1440px; max-width: 100%; line-height: 0;
            border-radius: 8px; overflow: hidden; box-shadow: 0 10px 34px rgba(0,0,0,.6); }
   canvas { width: 100%; height: auto; image-rendering: pixelated; }
   .hud { position: absolute; inset: 0; pointer-events: none; font: 12px ui-monospace, Menlo, monospace; }
-  .hud span { position: absolute; top: 10px; color: #eef3ff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
-  .hud .left { left: 12px; opacity: .85; } .hud .right { right: 12px; opacity: .55; }
-  .panel { width: 960px; max-width: 100%; margin-top: 14px; display: flex; gap: 8px;
+  .hud span { position: absolute; bottom: 14px; color: #eef3ff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
+  .hud .left { left: 12px; opacity: .85; } .hud .right { right: 12px; opacity: .75; }
+  .panel { width: 1440px; max-width: 100%; margin-top: 14px; display: flex; gap: 8px;
            flex-wrap: wrap; align-items: center; }
   button { font: 11px ui-monospace, Menlo, monospace; color: #cbd3e2; background: #171b24;
            border: 1px solid #262c39; border-radius: 5px; padding: 6px 10px; cursor: pointer; }
   button:hover { background: #1e2432; }
   button.on { border-color: #4a6ea8; color: #dce6ff; }
   label { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
-  input[type=range] { width: 220px; }
+  input[type=range] { width: min(220px, 45vw); }
+  button:focus-visible, input:focus-visible { outline: 2px solid #e8bda0; outline-offset: 4px; }
+  @media (max-width: 600px) { body { padding: 12px; } .hud { font-size: 10px; } .hud span { bottom: 8px; } }
+  .day-strip { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    width: 40%; padding: 8px 10px 5px; box-sizing: border-box; line-height: 1.3;
+    background: linear-gradient(transparent, rgba(6,17,22,.78) 35%); border-radius: 4px;
+    color: #e9ddc3; text-align: center; }
+  .turn-bars { display: grid; grid-template-columns: repeat(var(--turn-count), minmax(0, 1fr));
+    column-gap: .52%; height: clamp(24px, 3vw, 42px); align-items: stretch; }
+  .turn-bar { position: relative; display: flex; align-items: flex-end; justify-content: stretch;
+    padding: 0 0 5px; margin: 0; min-width: 0; border: 0; border-radius: 0;
+    background: transparent; cursor: pointer; }
+  .turn-bar::before { content: ''; width: 100%; height: var(--bar-height);
+    background: #eadbc0; opacity: .78; }
+  .turn-bar[data-outcome="failed"]::before { background: #efa27e; }
+  .turn-bar[data-outcome="needs-you"]::before { background: #eac780; }
+  .turn-bar[data-switched="true"]::after { content: ''; position: absolute; bottom: 1px;
+    left: 0; width: 100%; height: 2px; background: #efa27e; opacity: .85; }
+  .turn-bar:hover, .turn-bar:focus-visible { background: rgba(234,219,192,.10); }
+  .turn-bar:hover::before, .turn-bar:focus-visible::before { opacity: 1; }
+  .turn-bar:focus-visible { outline: 1px solid #eadbc0; outline-offset: 2px; }
+  .day-count { display: block; margin-top: 2px; font-size: 10px; opacity: .85; }
+  .turn-tooltip { position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
+    width: max-content; max-width: 260px; padding: 7px 10px; border-radius: 4px;
+    background: rgba(9,20,26,.96); color: #f2e8d7; font-size: 11px; line-height: 1.5;
+    box-shadow: 0 2px 10px #0005; pointer-events: none; }
+  @media (max-width: 600px) { .day-strip { bottom: 28px; width: 64%; padding: 5px 8px 3px; }
+    .turn-bars { height: 22px; } .day-count { font-size: 9px; } .turn-tooltip { max-width: 220px; } }
   .note { margin-top: 12px; max-width: 70ch; line-height: 1.6; }
 </style>
 
 <h1>Waiting Room — live scene</h1>
 <div class="frame">
-  <canvas id="cv" width="320" height="150"></canvas>
+  <canvas id="cv" width="480" height="225" role="img" aria-label="Animated lake landscape showing the current usage window"></canvas>
+  <div class="day-strip" role="group" aria-label="Turn history. Use left and right arrow keys to explore turns.">
+    <div class="turn-bars" id="turnBars"></div>
+    <span class="day-count" id="dayCount"></span>
+    <div class="turn-tooltip" id="turnTooltip" role="tooltip" hidden></div>
+  </div>
   <div class="hud"><span class="left" id="hudL"></span><span class="right" id="hudR"></span></div>
 </div>
 <div class="panel">
@@ -33,22 +66,23 @@
   <button id="bDone">finish turn (birds)</button>
   <button id="bReset">reset window (sunrise)</button>
   <button id="bBirds">send birds</button>
+  <button id="bRings">send lake rings</button>
   <label>usage <input type="range" id="sUse" min="0" max="100" value="18"> <span id="useOut">18%</span></label>
 </div>
 <p class="note">Movement carries meaning: leaves and water move while a turn runs, everything
 settles when idle, birds lift when a turn finishes (and sometimes on their own), and the
-window reset is a sunrise. Clouds always drift.</p>
+window reset is a sunrise. Clouds always drift, occasional rings spread across the lake, and fireflies glow near the reeds at dusk.</p>
 
 <script>
 // ---------------------------------------------------------------- palettes
 const MOODS = {
   dawn: {
-    sky:  ['#131a35','#1d2347','#2f2a56','#4a3160','#6e3f62','#9c5361','#c97358'],
-    haze: '#c98a63', light: '#ffe2b0', glow: '#ff9d52', rays: .22,
-    ridge: ['#4b4a78','#33315c','#211f40'],
-    leaf: '#1e1a35', leafLit: '#312a4e', bark: '#100e20',
-    bank: '#100f1d', bankTop: '#1e1c36', water: '#1a1c38', waterLight: '#4c4c84',
-    star: '#cdd6f5', mist: '#6a5d86', cloud: '#7a5f7e', cloudLit: '#e8a07a', starAmt: .55,
+    sky:  ['#304e72','#45618a','#666f94','#8b819b','#b897a6','#dfaeab','#f5c49f'],
+    haze: '#b8a2ae', light: '#ffe2b0', glow: '#ff9d52', rays: .22,
+    ridge: ['#8286a0','#5b718c','#304f62'],
+    leaf: '#172e35', leafLit: '#526247', bark: '#101f29',
+    bank: '#0d2025', bankTop: '#293f38', water: '#626f91', waterLight: '#b4a7b8',
+    star: '#cdd6f5', mist: '#a4a1b7', cloud: '#7a5f7e', cloudLit: '#e8a07a', starAmt: .02,
   },
   day: {
     sky:  ['#2e6aa8','#4d84bb','#6b9ecb','#8bb8dc','#a9cde7','#c3dcee','#d8e8f2'],
@@ -76,7 +110,7 @@ const MOODS = {
   },
 };
 // usage burns the day down: full window = dawn, empty = dusk, spent = night
-const RAMP = [[0, 'dawn'], [.35, 'day'], [.85, 'dusk'], [1, 'dusk']];
+const RAMP = [[0, 'dawn'], [.20, 'dawn'], [.5, 'day'], [.85, 'dusk'], [1, 'dusk']];
 
 const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
 const mix = (a,b,t) => [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
@@ -120,78 +154,83 @@ function bake(A, B, t = 0) {
 }
 
 // ---------------------------------------------------------------- geometry
-const W = 320, H = 150, SHORE = 96, BANK = H - 20;
-const ARC = { cx: 160, cy: SHORE - 26, rx: 140, ry: 56 };
+// Draw at a fixed pixel resolution; CSS enlarges the artwork without smoothing.
+const W = 480, H = 225, SHORE = 146, BANK = 210;
+const ARC = { cx: 240, cy: 112, rx: 205, ry: 70 };
 const BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r => r.map(v => (v+.5)/16));
-const LOBE = ['..**##..', '.*#####.', '*#######', '########', '#######%', '.######%', '..%###%.'];
-
 function rng(seed) { let s = seed >>> 0 || 1;
   return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
 function arcXY(f) {
   const t = Math.PI * (1 - clamp(f, 0, 1));
   return { x: Math.round(ARC.cx + ARC.rx * Math.cos(t)), y: Math.round(ARC.cy - ARC.ry * Math.sin(t)) };
 }
-
-// ---------------------------------------------------------------- world (fixed layout, seeded)
+// Fixed texture: movement comes from wind and water, never random pixel flicker.
+const noise = new Float32Array(W * H);
+{ const R = rng(73); for (let i = 0; i < noise.length; i++) noise[i] = R(); }
 const world = (() => {
   const R = rng(11);
+  const stars = Array.from({length: 100}, () => ({x: R()*W, y: R()*85, a: R(), tw: R()*6.28}));
+  const clouds = Array.from({length: 14}, () => ({x: R()*W, y: 20+R()*65, w: 15+R()*60, speed: .2+R()*.4}));
+  // Keep the same seeded world layout; give a few clouds enough body to read
+  // against the textured sky, with slower layers farther in the distance.
+  const driftingClouds = clouds.slice(0, 8).map((c, i) => ({
+    ...c, y: 17 + (i * 17 % 51), w: c.w * 1.3, h: 5 + (i % 3) * 2,
+    speed: c.speed * 1.8, phase: i * 1.7,
+  }));
+  const day = Array.from({length: 64}, () => ({sec: 5+R()*180, outcome: R()>.9 ? 'failed' : 'done', switched: R()>.85}));
+  // Large asymmetrical trees reach beyond the frame, leaving the lake open.
+  // Each path is a connected fork: [x, y, radius]. Crowns share broad masses
+  // rather than repeated leaf stamps, keeping the silhouette readable at 1x.
   const trees = [
-    { x: 8,      h: 34, spread: 17, lobes: 16, phase: R() * 6.28 },
-    { x: 46,     h: 23, spread: 13, lobes: 10, phase: R() * 6.28 },
-    { x: W - 13, h: 38, spread: 19, lobes: 18, phase: R() * 6.28 },
-    { x: W - 56, h: 21, spread: 12, lobes: 9,  phase: R() * 6.28 },
-  ].map(t => ({ ...t, branches: null, canopy: null, lean: (R() - .5) * .3 }));
-  const bushes = [];
-  for (let i = 0; i < 18; i++) bushes.push({ x: R() * W, y: BANK + 1 + R() * 3, r: 5 + R() * 6, f: R() > .5 });
-  const grass = [];
-  for (let x = 0; x < W; x++) if (R() > .55) grass.push({ x, h: 2 + (R() * 5 | 0), phase: R() * 6.28 });
-  const clouds = [];
-  for (let i = 0; i < 5; i++) clouds.push({
-    x: R() * W, y: 10 + R() * 40, w: 22 + R() * 34, h: 5 + R() * 5,
-    speed: .06 + R() * .16, seed: R() * 999, depth: R(),
+    {seed:7, paths:[
+      [[-3,167,8],[5,126,6],[10,94,5],[13,67,4],[19,43,3],[25,18,1]],
+      [[10,96,4],[23,88,2],[31,78,.7]],
+      [[13,70,4],[5,52,3],[-8,37,1]],
+      [[16,57,3.5],[29,42,2.5],[46,31,1],[58,20,.5]],
+      [[21,36,2.5],[41,25,2],[58,11,1],[72,7,.5]],
+      [[12,74,3],[2,68,1],[-7,62,.5]],
+    ], crowns:[[43,6,51,22],[5,37,41,20],[-9,62,17,18],[28,80,12,7]]},
+    {seed:25, paths:[
+      [[480,183,8],[474,155,6],[471,134,5],[461,108,4],[453,87,2.5],[459,63,.7]],
+      [[472,140,4],[453,125,2.5],[438,119,1],[425,113,.5]],
+      [[463,111,4],[446,100,3],[429,84,1.5],[412,78,.5]],
+      [[455,95,3],[439,78,2],[433,64,.7]],
+      [[471,135,4],[478,103,3],[477,79,1.5],[488,61,.5]],
+      [[478,107,3],[463,87,1.5],[462,70,.5]],
+    ], crowns:[[477,64,30,29],[450,60,23,21],[426,77,26,20],[405,88,19,15],[451,92,32,15],[432,120,20,10]]},
+  ];
+  for(const tree of trees) tree.crowns=tree.crowns.map(([x,y,rx,ry],index)=>{
+    const R=rng(tree.seed+index*197);
+    const lobes=[{x:0,y:0,rx:rx*.8,ry:ry*.8}];
+    for(let i=0;i<12;i++) {
+      const angle=i/12*Math.PI*2, spread=.55+R()*.18;
+      lobes.push({x:Math.cos(angle)*rx*spread,y:Math.sin(angle)*ry*spread,
+        rx:rx*(.26+R()*.17),ry:ry*(.3+R()*.18)});
+    }
+    return {x,y,rx,ry,lobes,phase:R()*6.28};
   });
-  const day = [];
-  for (let i = 0; i < 64; i++) {
-    const r = R();
-    day.push({ sec: r < .55 ? 5 + R() * 25 : r < .9 ? 30 + R() * 90 : 120 + R() * 400,
-               outcome: R() > .93 ? 'failed' : R() > .88 ? 'needs-you' : 'done',
-               switched: R() > .86 });
+  const shrubs = [];
+  for (let i=0; i<105; i++) {
+    const x=R()*W, edge=Math.pow(Math.abs(x-W/2)/(W/2), 3);
+    shrubs.push({x, y: 211-edge*40+R()*8, r: 4+R()*10, seed: i*23+8});
   }
-  const stars = [];
-  for (let i = 0; i < 150; i++) stars.push({ x: R() * W, y: R() * (SHORE - 22), a: .2 + R() * .8, tw: R() * 6.28 });
-  return { trees, bushes, grass, clouds, stars, day };
+  // A handful of fixed home positions near the reeds; their small wandering
+  // paths and blink cycles are independent, with no new randomness per frame.
+  const fireflyRandom=rng(608);
+  const fireflies=Array.from({length:7},(_,i)=>({
+    x:78+i*51, y:185+fireflyRandom()*14,
+    phase:fireflyRandom()*Math.PI*2, cycle:7+fireflyRandom()*6,
+    drift:.16+fireflyRandom()*.13,
+  }));
+  return {stars, clouds: driftingClouds, day, trees, shrubs, fireflies};
 })();
-
-// pre-compute each tree's branch tips and lobe placement once
-for (const t of world.trees) {
-  const R = rng(t.x * 77 + 5);
-  const groundY = BANK + 2, trunkTop = groundY - t.h;
-  t.branches = [];
-  for (let b = 0; b < 3; b++) {
-    const at = trunkTop + t.h * (.12 + b * .16) + R() * 4, dir = b % 2 ? 1 : -1;
-    const len = t.spread * (.5 + R() * .6);
-    let x = t.x + t.lean * (groundY - at), y = at;
-    const path = [];
-    for (let s = 0; s < len; s++) { x += dir * .9; y -= .45 + R() * .2; path.push([x, y]); }
-    t.branches.push({ tip: { x, y }, path });
-  }
-  t.branches.push({ tip: { x: t.x + t.lean * (groundY - trunkTop), y: trunkTop - 2 }, path: [] });
-  t.canopy = [];
-  for (let i = 0; i < t.lobes; i++) {
-    const br = t.branches[(R() * t.branches.length) | 0];
-    t.canopy.push({
-      dx: br.tip.x + (R() * 16 - 8) - t.x, dy: br.tip.y + (R() * 12 - 7),
-      scale: t.h > 30 ? (R() > .35 ? 2 : 1) : (R() > .7 ? 2 : 1),
-      flip: br.tip.x < t.x, lag: R(),
-    });
-  }
-}
 
 // ---------------------------------------------------------------- state
 const state = {
   used: .18, nightAmt: 0, moonF: .42, running: true, wind: 1, ripple: 1,
   seq: null,               // the reset sequence, when one is playing
   birds: [], lastBird: 0,
+  lakeRings: [], nextRingAt: null,
 };
 
 // The window reset, played out: the sun finishes setting, the moon rises and
@@ -233,255 +272,383 @@ function spawnBirds(now, n = 3 + (Math.random() * 2 | 0)) {   // a small flock r
   state.lastBird = now;
 }
 
-// ---------------------------------------------------------------- static layers
-let cache = { key: '', base: null, water: null, pal: null, body: null };
-
-function buildStatic(pal, used, night) {
-  const px = new Uint8ClampedArray(W * H * 4);
-  const R = rng(4242);
-  const body = arcXY(used);
-  const put = (x, y, rgb, a = 1) => {
-    x |= 0; y |= 0;
-    if (x < 0 || y < 0 || x >= W || y >= H) return;
-    const o = (y * W + x) * 4;
-    px[o] = px[o]*(1-a) + rgb[0]*a; px[o+1] = px[o+1]*(1-a) + rgb[1]*a;
-    px[o+2] = px[o+2]*(1-a) + rgb[2]*a; px[o+3] = 255;
-  };
-
-  for (let y = 0; y < SHORE; y++)
-    for (let x = 0; x < W; x++) {
-      const d = Math.hypot((x - body.x) * .75, y - body.y);
-      let t = y / SHORE;
-      t += Math.max(0, 1 - d / 96) ** 2 * (night ? .28 : .62);
-      t += Math.max(0, 1 - Math.abs(y - SHORE) / 40) *
-           Math.max(0, 1 - Math.abs(x - body.x) / 200) * (night ? .12 : .4);
-      const i = clamp(t, 0, .999) * (pal.sky.length - 1), lo = Math.floor(i);
-      put(x, y, pal.sky[Math.min(pal.sky.length - 1, (i - lo) > BAYER[y&3][x&3] ? lo + 1 : lo)]);
-    }
-
-  if (pal.rays > 0)
-    for (let k = 0; k < 7; k++) {
-      const spread = (k - 3) * .17 + (R() - .5) * .06, strength = pal.rays * (.55 + R() * .45);
-      for (let s = 6; s < 130; s++) {
-        const x = body.x + Math.sin(spread) * s * 1.6, y = body.y + Math.cos(spread) * s;
-        if (y > SHORE) break;
-        const w = 1 + s * .05, fade = (1 - s / 130) * strength;
-        for (let o = -w; o <= w; o++) put(x+o, y, pal.light, fade * (1 - Math.abs(o)/(w+1)) * .5);
+// One small disturbance releases three rings, then the lake settles again.
+// Choose the open water, away from the shore and the foreground plants.
+function spawnLakeRings(now) {
+  state.lakeRings.push({x:120+Math.random()*240,y:159+Math.random()*23,born:now});
+  state.lakeRings=state.lakeRings.slice(-3); // Repeated preview clicks stay quiet.
+  state.nextRingAt=now+45000+Math.random()*45000;
+}
+function drawLakeRings(put,pal,now) {
+  state.lakeRings=state.lakeRings.filter(r=>now-r.born<7000);
+  const color=mix(pal.waterLight,pal.light,.35);
+  for(const ripple of state.lakeRings) {
+    const age=(now-ripple.born)/1000;
+    for(let ring=0;ring<3;ring++) {
+      const progress=(age-ring*.7)/5.5;
+      if(progress<=0 || progress>=1) continue;
+      // Flatten the circles into ellipses to match the lake's perspective.
+      // Reduced motion keeps a stationary ring that only fades in and out.
+      const radius=reducedMotion.matches ? 7+ring*5 : 1+progress*22;
+      const alpha=Math.sin(progress*Math.PI)*.36*(1-ring*.12);
+      const steps=Math.ceil(Math.PI*2*radius), painted=new Set();
+      for(let i=0;i<steps;i++) {
+        const angle=i/steps*Math.PI*2;
+        const x=Math.round(ripple.x+Math.cos(angle)*radius);
+        const y=Math.round(ripple.y+Math.sin(angle)*radius*.28);
+        const pixel=y*W+x;
+        if(painted.has(pixel)) continue;
+        painted.add(pixel);
+        put(x,y,color,alpha*(.75+.25*Math.abs(Math.sin(angle))));
       }
     }
+  }
+}
 
-  for (let i = 0; i <= 200; i += 5) { const q = arcXY(i / 200); put(q.x, q.y, pal.light, .09); }
-
-  // sun or moon
-  const r = night ? 6 : 7;
-  for (let y = -r-12; y <= r+12; y++)
-    for (let x = -r-12; x <= r+12; x++) {
-      const d = Math.hypot(x, y);
-      if (d > r && d <= r + 12) put(body.x+x, body.y+y, pal.glow, Math.max(0, 1-(d-r)/12)**2 * .5);
+function drawFireflies(put,now) {
+  const dusk=clamp((state.used-.72)/.18,0,1);
+  const presence=lerp(dusk*dusk*(3-2*dusk),.85,state.nightAmt);
+  if(presence<=0) return;
+  const t=now/1000, core=[226,232,153], glow=[170,190,100];
+  for(const fly of world.fireflies) {
+    // Long dark pauses between slow, soft pulses. Reduced motion presents
+    // stationary, dim points rather than movement or blinking.
+    const pulse=reducedMotion.matches ? .3 : Math.max(0,Math.sin(t*Math.PI*2/fly.cycle+fly.phase))**3;
+    const alpha=presence*pulse*.7;
+    if(alpha<.02) continue;
+    const x=Math.round(fly.x+(reducedMotion.matches?0:Math.sin(t*fly.drift+fly.phase)*4));
+    const y=Math.round(fly.y+(reducedMotion.matches?0:Math.sin(t*fly.drift*.73+fly.phase*2)*2.5));
+    for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) {
+      const distance=dx*dx+dy*dy;
+      if(distance>0 && distance<=4) put(x+dx,y+dy,glow,alpha*(distance===1?.16:.045));
     }
-  for (let y = -r; y <= r; y++)
-    for (let x = -r; x <= r; x++) {
-      if (x*x + y*y > r*r) continue;
-      let lit = true;
-      if (night && (x + .8 * 2 * r) ** 2 + y*y <= r*r) lit = false;   // crescent
-      put(body.x+x, body.y+y, lit ? pal.light : mix(pal.sky[pal.sky.length-1], pal.light, .12));
-    }
+    put(x,y,core,alpha);
+  }
+}
 
-  const ridges = [
-    { top: SHORE - 34, amp: 9, freq: .021, haze: .46, col: pal.ridge[0], seed: 1.7 },
-    { top: SHORE - 22, amp: 7, freq: .033, haze: .2,  col: pal.ridge[1], seed: 4.2 },
-    { top: SHORE - 11, amp: 5, freq: .047, haze: .02, col: pal.ridge[2], seed: 8.9 },
+// ---------------------------------------------------------------- pixel painting
+function painter(px) {
+  return (x, y, rgb, a=1) => {
+    x=Math.round(x); y=Math.round(y);
+    if (x<0 || y<0 || x>=W || y>=H) return;
+    const o=(y*W+x)*4;
+    const old=px[o+3]/255, alpha=a+old*(1-a);
+    if(!alpha) return;
+    px[o]=(px[o]*old*(1-a)+rgb[0]*a)/alpha;
+    px[o+1]=(px[o+1]*old*(1-a)+rgb[1]*a)/alpha;
+    px[o+2]=(px[o+2]*old*(1-a)+rgb[2]*a)/alpha; px[o+3]=alpha*255;
+  };
+}
+function line(put, x0,y0,x1,y1,col,width=1) {
+  const n=Math.max(Math.abs(x1-x0),Math.abs(y1-y0),1);
+  for(let i=0;i<=n;i++) for(let w=0;w<width;w++) put(lerp(x0,x1,i/n)+w,lerp(y0,y1,i/n),col);
+}
+function foliage(put,cx,cy,rx,ry,pal,seed) {
+  const R=rng(seed), phase=R()*6.28;
+  const shadow=mix(pal.leaf,pal.bark,.45);
+  for(let y=-Math.ceil(ry);y<=ry;y++) for(let x=-Math.ceil(rx);x<=rx;x++) {
+    const d=(x/rx)**2+(y/ry)**2;
+    const edge=1+.13*Math.sin(x*.7+phase)*Math.cos(y*.8+phase);
+    if(d>edge) continue;
+    const n=noise[((Math.round(cy+y)+H)%H)*W+((Math.round(cx+x)+W)%W)];
+    const light=clamp(.38-x/rx*.18-y/ry*.3,0,1);
+    const clusters=Math.sin(x*.43+y*.27+phase)*Math.cos(y*.52-x*.18);
+    let c=clusters+n*.25> .78 ? mix(pal.leaf,pal.leafLit,.55) : clusters<-.35 ? shadow : pal.leaf;
+    if (BAYER[(y+512)&3][(x+512)&3]<light*.25 && clusters>0) c=mix(c,pal.leafLit,.55);
+    put(cx+x,cy+y,c);
+  }
+}
+
+// Tapered, bent limbs with a cool lit edge and long broken bark grooves.
+function treeLimb(put,path,pal) {
+  const colors=[mix(pal.bark,pal.leaf,.13),mix(pal.bark,pal.ridge[1],.27),mix(pal.bark,pal.mist,.24)];
+  for(let segment=1;segment<path.length;segment++) {
+    const [x0,y0,r0]=path[segment-1], [x1,y1,r1]=path[segment];
+    const length=Math.hypot(x1-x0,y1-y0), nx=-(y1-y0)/length, ny=(x1-x0)/length;
+    for(let step=0;step<=Math.ceil(length*2);step++) {
+      const f=step/Math.ceil(length*2), x=lerp(x0,x1,f), y=lerp(y0,y1,f), r=lerp(r0,r1,f);
+      for(let d=-r;d<=r;d+=.65) {
+        const edge=d/r, grain=Math.sin(y*.19+d*2)+Math.sin(y*.07+d*3.4);
+        const color=edge<-.45 ? colors[0] : edge>.4 && grain>-.4 ? colors[2] : colors[1];
+        put(x+nx*d,y+ny*d,color);
+      }
+    }
+  }
+}
+function treeCrown(put,crown,pal,sway) {
+  const {x:cx,y:cy,rx,ry,lobes,phase}=crown;
+  const colors=[mix(pal.leaf,pal.bark,.5),mix(pal.leaf,pal.bark,.18),pal.leaf,
+    mix(pal.leaf,pal.leafLit,.30),mix(pal.leaf,pal.leafLit,.62),mix(pal.leaf,pal.leafLit,.85)];
+  for(let y=-Math.ceil(ry*1.3);y<=ry*1.3;y++) for(let x=-Math.ceil(rx*1.3);x<=rx*1.3;x++) {
+    let surface=-Infinity, light=0;
+    // The tallest overlapping lobe supplies the surface and its lighting.
+    // Smaller edge notches suggest leaves; broad shade belongs to the canopy.
+    const leafX=Math.floor((x+y*.45)/3), leafY=Math.floor(y/3);
+    const grain=noise[((leafY+256)&127)*W+((leafX+Math.floor(phase*30)+256)&255)];
+    const notch=Math.sin(x*1.7+y*.9+phase)*Math.cos(y*1.4-x*.7)*.10+(grain-.5)*.17;
+    for(const lobe of lobes) {
+      const dx=(x-lobe.x)/lobe.rx, dy=(y-lobe.y)/lobe.ry;
+      const height=1-dx*dx-dy*dy+notch;
+      if(height>surface) {
+        surface=height;
+        light=.30-dx*.13-dy*.29 + Math.sin(x*.17+y*.13+phase)*.10;
+      }
+    }
+    if(surface<0) continue;
+    // Groups of two-to-four pixels read as leaf sprays, with darker gaps
+    // underneath; highlights stay on the upper-left planes of each crown.
+    const spray=grain>.68 ? .19 : grain<.27 ? -.16 : -.02;
+    const shade=clamp(light-(y/ry)*.16+spray,0,1)*4.6;
+    const low=Math.floor(shade), threshold=BAYER[(y+512)&3][(x+512)&3];
+    const index=Math.min(5,low+(shade-low>threshold?1:0));
+    put(cx+x+sway,cy+y,colors[index]);
+  }
+}
+
+let cache={key:'',base:null,pal:null,body:null,foreground:null};
+function buildStatic(pal,used,night) {
+  const px=new Uint8ClampedArray(W*H*4), put=painter(px), body=arcXY(used);
+  const R=rng(4242);
+  for(let y=0;y<SHORE;y++) for(let x=0;x<W;x++) {
+    const d=Math.hypot((x-body.x)*.8,(y-body.y)*1.1);
+    const warmth=Math.exp(-d*d/6500)*(night?.10:.32);
+    const band=clamp(y/SHORE*.85+warmth,0,.999)*(pal.sky.length-1);
+    const lo=Math.floor(band), fraction=band-lo;
+    const threshold=BAYER[y&3][x&3]*.8+noise[y*W+x]*.2;
+    let c=pal.sky[fraction>threshold?lo+1:lo];
+    c=mix(c,pal.glow,Math.exp(-d*d/1300)*(night?.06:.20));
+    put(x,y,c);
+  }
+  // A simple pixel-edged disc in a warm halo, with no visible orbital guide.
+  const radius=night?8:10;
+  for(let y=-radius;y<=radius;y++) for(let x=-radius;x<=radius;x++) {
+    if(x*x+y*y>radius*radius) continue;
+    if(night && (x+6)**2+(y-2)**2<radius*radius) continue;
+    put(body.x+x,body.y+y,pal.light);
+  }
+  // Five overlapping silhouettes, with increasingly crisp forested ridgelines.
+  const ridges=[
+    {base:112,amp:21,freq:.017,seed:1.2,col:mix(pal.ridge[0],pal.haze,.3)},
+    {base:119,amp:18,freq:.024,seed:4.1,col:pal.ridge[0]},
+    {base:130,amp:12,freq:.023,seed:2.3,col:mix(pal.ridge[1],pal.mist,.12)},
+    {base:139,amp:10,freq:.028,seed:5.7,col:pal.ridge[1]},
+    {base:146,amp:10,freq:.022,seed:3.3,col:pal.ridge[2]},
   ];
-  for (const rd of ridges) {
-    const col = mix(rd.col, pal.haze, rd.haze), rim = mix(col, pal.light, .1);
-    for (let x = 0; x < W; x++) {
-      const h = Math.sin(x*rd.freq + rd.seed) * rd.amp
-              + Math.sin(x*rd.freq*2.7 + rd.seed*3) * rd.amp * .35
-              + Math.sin(x*rd.freq*6.1 + rd.seed) * rd.amp * .12;
-      const top = Math.round(rd.top - h);
-      for (let y = top; y < SHORE; y++) put(x, y, col);
-      const lit = Math.max(0, 1 - Math.abs(x - body.x) / 150);
-      if (lit > .1) put(x, top, rim, lit);
-      if (rd.haze < .25 && R() > .75) { const th = 1 + (R()*2|0); for (let y = top-th; y < top; y++) put(x, y, col); }
-    }
-    for (let y = rd.top + 2; y < rd.top + 14; y++)
-      for (let x = 0; x < W; x++) {
-        const a = Math.max(0, 1 - (y - rd.top - 2)/12) * .34 * (Math.sin(x*.03 + rd.seed)*.3 + .7);
-        if (BAYER[y&3][x&3] < a * 1.8) put(x, y, pal.mist, a);
+  ridges.forEach((rd,layer)=>{
+    for(let x=0;x<W;x++) {
+      const h=Math.sin(x*rd.freq+rd.seed)*rd.amp+Math.sin(x*rd.freq*2.3+rd.seed)*rd.amp*.28+Math.sin(x*.18+rd.seed)*1.2;
+      const top=Math.round(rd.base-h);
+      for(let y=top;y<SHORE;y++) {
+        const mist=clamp((y-top)/35,0,1)*.22;
+        const grain=BAYER[y&3][x&3]<mist*2 ? .10 : 0;
+        put(x,y,mix(rd.col,pal.mist,mist+grain));
       }
-  }
-  return { px, body };
+      if(layer>1 && x%3===0 && R()>.2) {
+        const height=2+R()*(layer===4?7:3);
+        line(put,x,top,x,top-height,rd.col);
+        if(height>4) { line(put,x-1,top-2,x+1,top-2,rd.col); line(put,x-1,top-4,x+1,top-4,rd.col); }
+      }
+    }
+  });
+  return {px,body};
 }
 
-// ---------------------------------------------------------------- frame
-const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
-ctx.imageSmoothingEnabled = false;
-const frame = ctx.createImageData(W, H);
-
-function render(now) {
-  const t = now / 1000;
-  const used = clamp(state.used, 0, 1);
-  const night = state.nightAmt > .5;
-  const bodyF = night ? state.moonF : used;
-  const key = [Math.round(used * 200), Math.round(state.nightAmt * 40), Math.round(state.moonF * 200)].join('|');
-  if (key !== cache.key) {
-    cache.pal = paletteFor(used, state.nightAmt);
-    const s = buildStatic(cache.pal, bodyF, night);
-    cache.base = s.px; cache.body = s.body; cache.key = key;
+// Foreground is cached separately so tiny leaf movements don't rebuild the sky.
+function buildForeground(pal,windPhase) {
+  const px=new Uint8ClampedArray(W*H*4), put=painter(px);
+  for(let x=0;x<W;x++) {
+    const edge=Math.pow(Math.abs(x-W/2)/(W/2),3);
+    const top=213-edge*28+Math.sin(x*.08)*2;
+    for(let y=Math.round(top);y<H;y++) put(x,y,mix(pal.bankTop,pal.bank,clamp((y-top)/12,0,1)));
   }
-  const pal = cache.pal, body = cache.body;
-  const px = frame.data;
+  for(const tr of world.trees) {
+    for(const path of tr.paths) treeLimb(put,path,pal);
+    for(const crown of tr.crowns) {
+      const sway=Math.sin(windPhase+tr.seed+crown.phase*.15)*.45;
+      treeCrown(put,crown,pal,sway);
+    }
+  }
+  // Dense side undergrowth frames the water without enclosing the sky.
+  for(const side of [0,1]) {
+    const R=rng(171+side);
+    for(let i=0;i<30;i++) {
+      const inward=R()*55, x=side?W-inward:inward;
+      const y=149+inward*.8+R()*32;
+      foliage(put,x,y,7+R()*12,5+R()*11,pal,i*13+side*50);
+    }
+  }
+  // Shrubs climb the sides of the lake, with a few cool stone surfaces.
+  for(const b of world.shrubs) foliage(put,b.x+Math.sin(windPhase+b.seed)*.3,b.y,b.r,b.r*.65,pal,b.seed);
+  for(const rock of [{x:65,y:203,rx:24,ry:17},{x:379,y:215,rx:19,ry:14}]) {
+    for(let y=-rock.ry;y<5;y++) for(let x=-rock.rx;x<rock.rx;x++) {
+      if((x/rock.rx)**2+(y/rock.ry)**2>1) continue;
+      const shade=clamp(.30+(x+y)/55+noise[(rock.y+y)*W+rock.x+x]*.22,0,1);
+      let c=mix(pal.ridge[1],pal.bark,shade+.2);
+      if(y<-rock.ry*.6 && BAYER[(y+256)&3][(x+256)&3]<.3) c=mix(c,pal.mist,.2);
+      put(rock.x+x,rock.y+y,c);
+    }
+  }
+  // Reeds and curved grass blades break up the near shoreline.
+  const R=rng(918);
+  for(let clump=0;clump<50;clump++) {
+    const x=R()*W, edge=Math.pow(Math.abs(x-W/2)/(W/2),3), y=216-edge*30+R()*5;
+    for(let blade=0;blade<7;blade++) {
+      const height=4+R()*17, lean=(R()-.5)*20;
+      const col=mix(pal.leaf,pal.leafLit,R()*.55);
+      for(let k=0;k<height;k++) {
+        const f=k/height;
+        put(x+lean*f*f+Math.sin(windPhase+x)*f*.6,y-k,col);
+        if(k<height*.6) put(x+lean*f*f+1,y-k,col);
+      }
+    }
+  }
+  // A dark lower edge gives the two usage labels a quiet, readable home.
+  for(let y=H-17;y<H;y++) for(let x=0;x<W;x++) put(x,y,pal.bank,(y-(H-17))/17*.85);
+  return px;
+}
+
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+const frame=ctx.createImageData(W,H);
+function render(now,eventNow=now) {
+  const t=now/1000, used=clamp(state.used,0,1), night=state.nightAmt>.5;
+  const key=[Math.round(used*200),Math.round(state.nightAmt*40),Math.round(state.moonF*200)].join('|');
+  if(key!==cache.key) {
+    cache.pal=paletteFor(used,state.nightAmt);
+    const s=buildStatic(cache.pal,night?state.moonF:used,night);
+    cache.base=s.px; cache.body=s.body; cache.key=key; cache.foreground=null;
+  }
+  const pal=cache.pal, body=cache.body, px=frame.data;
   px.set(cache.base);
+  const put=painter(px);
+  if(night) for(const s of world.stars) put(s.x,s.y,pal.star,s.a*(.5+.25*Math.sin(t+s.tw))*state.nightAmt);
+  // Soft cloud banks drift at different speeds, with pixel-dithered edges.
+  // Their upper lobes catch the light; long, thin tails keep them airy.
+  for(const c of world.clouds) {
+    const cx=((c.x+t*c.speed)%(W+c.w))-c.w;
+    const lit=mix(pal.cloudLit,pal.light,.28);
+    for(let y=0;y<c.h;y++) for(let x=0;x<c.w;x++) {
+      const u=x/c.w, v=y/c.h;
+      const lobes = Math.exp(-1*((u-.28)/.19)**2-((v-.53)/.36)**2)
+                  + Math.exp(-1*((u-.49)/.17)**2-((v-.40)/.42)**2)
+                  + Math.exp(-1*((u-.67)/.20)**2-((v-.58)/.29)**2);
+      const tail=Math.sin(u*Math.PI)*Math.max(0,1-Math.abs(v-.76)*9)*.5;
+      const density=clamp(Math.max(lobes*.65,tail),0,1);
+      if(density<.07) continue;
+      const alpha=density*.48;
+      const shade=v<.52 ? lit : mix(pal.cloud,lit,.45);
+      const edge=BAYER[(y+Math.floor(c.phase))&3][x&3];
+      if(edge<density*1.5) put(cx+x,c.y+y,shade,alpha);
+    }
+  }
+  for(let y=SHORE;y<BANK+8;y++) {
+    const depth=(y-SHORE)/(BANK-SHORE);
+    const shift=Math.sin(y*.8+t*.5)*depth*2.4*state.ripple;
+    for(let x=0;x<W;x++) {
+      const sy=clamp(Math.round(SHORE-1-(y-SHORE)*1.25),0,SHORE-1);
+      const sx=clamp(Math.round(x+shift+Math.sin(x*.07)*Math.sin(t*.3+y*.17)*depth*state.ripple),0,W-1);
+      const o=(sy*W+sx)*4;
+      let c=mix([px[o],px[o+1],px[o+2]],pal.water,.22+depth*.3);
+      // Anchor the highlight pattern to the lake. Bounded sway replaces the
+      // advancing phase that made the whole surface look like a river current.
+      const sway=Math.sin(t*.28+y*.41)*.65*state.ripple;
+      const wave=Math.sin(y*1.9+Math.sin((x+sway)*.025+y*.22)*3);
+      if(wave>.98) {
+        // Fixed patches have their own slow rhythm, so glints brighten and
+        // fade locally instead of sweeping across the water in one direction.
+        const patch=noise[Math.floor(y/6)*W+Math.floor(x/24)];
+        const shimmer=.5+.5*Math.sin(t*(.32+patch*.24)+patch*Math.PI*2);
+        c=mix(c,pal.waterLight,.07+shimmer*.12*state.ripple);
+      }
+      if(BAYER[y&3][x&3]<depth*.3) c=mix(c,pal.waterLight,.07);
+      put(x,y,c);
+    }
+  }
+  line(put,0,SHORE,W,SHORE,mix(pal.ridge[2],pal.water,.4));
+  // Stable glints gently breathe instead of being randomized every frame.
+  { const R=rng(51);
+    for(let y=SHORE+2;y<BANK;y+=2) {
+      const d=(y-SHORE)/(BANK-SHORE), center=body.x+Math.sin(y*2+t*.5)*3*state.ripple;
+      const span=2+d*17, x=center+(R()-.5)*span;
+      const width=2+R()*9;
+      for(let i=0;i<width;i++) put(x+i,y,pal.light,(1-d)*(.25+.4*R())*(.8+.2*Math.sin(t+y)));
+    }
+  }
+  drawLakeRings(put,pal,eventNow);
+  // Birds cross the distant sky; foreground trees and plants occlude them.
+  for(const b of state.birds) {
+    if(!reducedMotion.matches) { b.x+=b.speed; b.y+=Math.sin(t*.7+b.phase)*.04; }
+    const flap=Math.sin(t*8+b.phase)>0?0:1;
+    put(b.x,b.y,pal.bark);
+    for(let i=1;i<3;i++) { put(b.x-i,b.y-flap*i,pal.bark); put(b.x+i,b.y-flap*i,pal.bark); }
+  }
+  state.birds=state.birds.filter(b=>b.speed>0?b.x<W+20:b.x>-20);
+  const windKey=Math.round(Math.sin(t*.65)*state.wind*3);
+  if(!cache.foreground || cache.windKey!==windKey) {
+    cache.foreground=buildForeground(pal,windKey*.35); cache.windKey=windKey;
+  }
+  for(let i=0;i<px.length;i+=4) if(cache.foreground[i+3]) {
+    const alpha=cache.foreground[i+3]/255;
+    for(let c=0;c<3;c++) px[i+c]=px[i+c]*(1-alpha)+cache.foreground[i+c]*alpha;
+    px[i+3]=255;
+  }
+  drawFireflies(put,now);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++) {
+    const edge=Math.hypot((x-W/2)/(W*.6),(y-H/2)/(H*.75));
+    if(edge>.75) put(x,y,pal.bank,Math.min(.4,(edge-.75)*.6));
+  }
+  ctx.putImageData(frame,0,0);
+}
 
-  const put = (x, y, rgb, a = 1) => {
-    x |= 0; y |= 0;
-    if (x < 0 || y < 0 || x >= W || y >= H) return;
-    const o = (y * W + x) * 4;
-    px[o] = px[o]*(1-a) + rgb[0]*a; px[o+1] = px[o+1]*(1-a) + rgb[1]*a;
-    px[o+2] = px[o+2]*(1-a) + rgb[2]*a; px[o+3] = 255;
+// ---------------------------------------------------------------- turn history
+// DOM bars stay crisp above the scene's vignette and expose the same details
+// to pointer, touch and keyboard users. Data is still the prototype's sample day.
+const turnBars=document.getElementById('turnBars');
+const turnTooltip=document.getElementById('turnTooltip');
+const outcomeLabels={done:'Completed',failed:'Failed','needs-you':'Needed your input',silent:'Stopped'};
+function turnHeight(seconds) {
+  return clamp(3+Math.round(11*Math.log1p(Math.max(0,seconds))/Math.log1p(600)),3,14);
+}
+function turnDescription(turn,index) {
+  const seconds=Math.round(turn.sec), minutes=Math.floor(seconds/60), remainder=seconds%60;
+  const duration=minutes ? `${minutes}m ${remainder}s` : `${seconds}s`;
+  return `Turn ${index+1} · ${duration} · ${outcomeLabels[turn.outcome] || turn.outcome}${turn.switched?' · Switched away':''}`;
+}
+const turnButtons=world.day.map((turn,index)=>{
+  const button=document.createElement('button');
+  button.type='button'; button.className='turn-bar'; button.tabIndex=index===0?0:-1;
+  button.dataset.outcome=turn.outcome; button.dataset.switched=String(turn.switched);
+  button.style.setProperty('--bar-height',`${turnHeight(turn.sec)/14*100}%`);
+  button.setAttribute('aria-label',turnDescription(turn,index));
+  const show=()=>{
+    turnTooltip.textContent=turnDescription(turn,index); turnTooltip.hidden=false;
   };
-
-  // --- stars twinkle (night only)
-  if (pal.starAmt > .02)
-    for (const s of world.stars) {
-      const a = s.a * pal.starAmt * (.6 + .4 * Math.sin(t * 1.3 + s.tw));
-      put(s.x, s.y, pal.star, a * clamp(Math.hypot(s.x - body.x, s.y - body.y) / 70, .15, 1));
-    }
-
-  // --- clouds drift, lit from the sun's side
-  for (const c of world.clouds) {
-    const cx = ((c.x + t * c.speed * 10) % (W + c.w * 2)) - c.w;
-    const lit = mix(pal.cloud, pal.cloudLit, clamp(1 - Math.abs(cx - body.x) / 120, 0, 1) * .8);
-    for (let y = 0; y < c.h; y++)
-      for (let x = 0; x < c.w; x++) {
-        const fx = x / c.w, fy = y / c.h;
-        const puff = Math.sin(fx * Math.PI) * (.6 + .4 * Math.sin(fx * 9 + c.seed))
-                   - Math.abs(fy - .45) * 1.7;
-        if (puff < .12) continue;
-        const a = clamp(puff * .9, 0, .75) * (c.depth * .5 + .5);
-        if (BAYER[(y + (c.seed|0)) & 3][(x + (cx|0)) & 3] < a * 1.5)
-          put(cx + x, c.y + y, y < c.h * .45 ? lit : pal.cloud, Math.min(.8, a));
-      }
-  }
-
-  // --- water: mirror the static scene with a moving ripple
-  const wob = (y, x) => Math.sin(y * .45 + t * .32) * (.6 + (y - SHORE) / (BANK - SHORE) * 2.4) * state.ripple
-                      + Math.sin(x * .05 - t * .19) * .6 * state.ripple;
-  for (let y = SHORE; y < BANK; y++) {
-    const depth = (y - SHORE) / (BANK - SHORE);
-    for (let x = 0; x < W; x++) {
-      const sy = clamp(Math.round(SHORE - (y - SHORE) * 1.2), 0, SHORE - 1);
-      const sx = clamp(Math.round(x + wob(y, x)), 0, W - 1);
-      const o = (sy * W + sx) * 4;
-      let c = mix([cache.base[o], cache.base[o+1], cache.base[o+2]], pal.water, .46 + depth * .38);
-      if (Math.sin(y * 2.1 + Math.sin(x * .03 + y * .35 - t * .22) * 2.6) > .955)
-        c = mix(c, pal.waterLight, .5);
-      const oo = (y * W + x) * 4;
-      px[oo] = c[0]; px[oo+1] = c[1]; px[oo+2] = c[2]; px[oo+3] = 255;
-    }
-  }
-  for (let x = 0; x < W; x++) put(x, SHORE, mix(pal.water, [0,0,0], .35));
-  {   // the light's path, shimmering
-    const R = rng((t * 2.5) | 0);
-    for (let y = SHORE; y < BANK; y++) {
-      const fade = 1 - (y - SHORE) / (BANK - SHORE), spread = 1.5 + (y - SHORE) * 1.1;
-      for (let d = 0; d < 2 + R() * 2; d++) {
-        const len = 2 + (R() * 4 | 0), x0 = body.x + (R() * 2 - 1) * spread;
-        for (let x = x0; x < x0 + len; x++) put(x, y, pal.light, clamp(fade * .34 * (.4 + R()*.6), 0, .4));
-      }
-    }
-  }
-
-  // --- bank, grass swaying
-  for (let x = 0; x < W; x++) {
-    const top = BANK + Math.round(Math.sin(x * .07) * 1.6);
-    for (let y = top; y < H; y++) put(x, y, y < top + 2 ? pal.bankTop : pal.bank);
-  }
-  for (const g of world.grass) {
-    const top = BANK + Math.round(Math.sin(g.x * .07) * 1.6);
-    const sway = Math.sin(t * 2.1 + g.phase) * state.wind;
-    for (let i = 0; i < g.h; i++)
-      put(g.x + sway * (i / g.h) * 1.6, top - i, i > g.h - 2 ? pal.bank : pal.bankTop, .9 - i * .12);
-  }
-
-  // --- trees: lobes sway more the higher and further out they are
-  for (const tr of world.trees) {
-    const groundY = BANK + 2, trunkTop = groundY - tr.h;
-    for (let y = groundY; y > trunkTop; y--) {
-      const f = (groundY - y) / tr.h;
-      const x = tr.x + tr.lean * (groundY - y) + Math.sin(t * 1.3 + tr.phase) * state.wind * f * 1.2;
-      const w = Math.max(1, Math.round(3 * (1 - f * .7)));
-      for (let o = 0; o < w; o++) put(x + o, y, o === 0 ? mix(pal.bark, pal.leafLit, .25) : pal.bark);
-    }
-    for (const br of tr.branches)
-      for (const [bx, by] of br.path) {
-        const f = (groundY - by) / tr.h;
-        put(bx + Math.sin(t * 1.3 + tr.phase) * state.wind * f * 1.2, by, pal.bark);
-      }
-    for (const lb of tr.canopy) {
-      const f = (groundY - lb.dy) / tr.h;
-      const sway = Math.sin(t * 1.3 + tr.phase + lb.lag * 1.2) * state.wind * f * 2.2;
-      stampLobe(put, tr.x + lb.dx + sway, lb.dy + Math.sin(t * .9 + lb.lag * 3) * state.wind * .6,
-                lb.scale, pal.leaf, pal.leafLit, lb.flip);
-    }
-  }
-  for (const b of world.bushes) {
-    const sway = Math.sin(t * 1.7 + b.x) * state.wind * .7;
-    for (let i = 0; i < 3; i++)
-      stampLobe(put, b.x + sway + (i - 1) * b.r * .5, b.y - b.r * .4 + (i % 2), 1, pal.leaf, pal.leafLit, b.f);
-  }
-
-  // --- birds
-  for (const b of state.birds) {
-    b.x += b.speed;
-    const flap = Math.sin(t * 9 + b.phase) > 0 ? 0 : 1;
-    const col = mix(pal.bark, pal.leaf, .3);
-    put(b.x, b.y, col);
-    put(b.x - 1, b.y - flap, col); put(b.x - 2, b.y - flap * 2, col);
-    put(b.x + 1, b.y - flap, col); put(b.x + 2, b.y - flap * 2, col);
-    b.y += Math.sin(t * .7 + b.phase) * .06;
-  }
-  state.birds = state.birds.filter(b => b.speed > 0 ? b.x < W + 20 : b.x > -20);
-
-  // --- the day strip: today's turns along the bottom of the bank
-  {
-    const n = world.day.length, bw = 2, gap = 2, right = W - 5;
-    for (let i = 0; i < n; i++) {
-      const d = world.day[n - 1 - i], x = right - i * (bw + gap);
-      if (x < 6) break;
-      const h = clamp(Math.round(Math.log10(1 + d.sec) * 3.4), 1, 8);
-      const col = d.outcome === 'failed' ? mix(pal.light, [255, 120, 90], .7)
-                : d.outcome === 'needs-you' ? mix(pal.light, [255, 200, 120], .6)
-                : pal.light;
-      for (let y = 0; y < h; y++)
-        for (let o = 0; o < bw; o++) put(x - o, H - 3 - y, col, .12 + .22 * (y / h));
-      if (d.switched) for (let o = 0; o < bw; o++) put(x - o, H - 2, mix(pal.light, [255,120,90], .85), .5);
-    }
-  }
-
-  // --- vignette
-  for (let y = 0; y < H; y++)
-    for (let x = 0; x < W; x++) {
-      const v = Math.hypot((x - W/2)/(W/2), (y - H/2)/(H/2));
-      const a = Math.max(0, v - .8) * .5;
-      if (a > 0) put(x, y, [3,4,10], Math.min(.38, a));
-    }
-
-  ctx.putImageData(frame, 0, 0);
+  button.onpointerenter=show; button.onfocus=show;
+  button.onpointerleave=()=>{ if(document.activeElement!==button) turnTooltip.hidden=true; };
+  button.onblur=()=>{ turnTooltip.hidden=true; };
+  button.onclick=()=>{ selectTurn(index); show(); };
+  button.onkeydown=event=>{
+    let next=index;
+    if(event.key==='ArrowRight') next=Math.min(world.day.length-1,index+1);
+    else if(event.key==='ArrowLeft') next=Math.max(0,index-1);
+    else if(event.key==='Home') next=0;
+    else if(event.key==='End') next=world.day.length-1;
+    else if(event.key==='Escape') { turnTooltip.hidden=true; return; }
+    else return;
+    event.preventDefault(); selectTurn(next);
+  };
+  turnBars.append(button);
+  return button;
+});
+function selectTurn(index) {
+  turnButtons.forEach((button,i)=>{ button.tabIndex=i===index?0:-1; });
+  turnButtons[index].focus();
 }
-
-function stampLobe(put, cx, cy, scale, leaf, leafLit, flip) {
-  const h = LOBE.length, w = LOBE[0].length;
-  for (let y = 0; y < h * scale; y++)
-    for (let x = 0; x < w * scale; x++) {
-      const ch = LOBE[(y / scale) | 0][flip ? w - 1 - ((x / scale) | 0) : (x / scale) | 0];
-      if (ch === '.') continue;
-      put(cx - w*scale/2 + x, cy - h*scale/2 + y,
-          ch === '*' ? leafLit : ch === '%' ? mix(leaf, [0,0,0], .35) : leaf);
-    }
-}
+turnBars.style.setProperty('--turn-count',Math.max(1,world.day.length));
+document.getElementById('dayCount').textContent=`${world.day.length} turns`;
 
 // ---------------------------------------------------------------- loop
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let last = 0, frozen = null;
 const m = location.hash.match(/t=([\d.]+)/); if (m) frozen = parseFloat(m[1]) * 1000;
 
@@ -496,9 +663,13 @@ function tick(now) {
   state.wind   += ((state.running ? 1 : .18) - state.wind) * .02;
   state.ripple += ((state.running ? 1 : .35) - state.ripple) * .02;
   stepReset(T);
-  if (T - state.lastBird > 45000 + Math.random() * 60000) spawnBirds(T);
+  if (!reducedMotion.matches && T - state.lastBird > 45000 + Math.random() * 60000) spawnBirds(T);
 
-  render(T);
+  if(state.nextRingAt===null) state.nextRingAt=T+45000+Math.random()*45000;
+  if(!reducedMotion.matches && T>=state.nextRingAt) spawnLakeRings(T);
+  render(reducedMotion.matches ? 0 : T,T);
+  document.getElementById('sUse').value = Math.round(state.used * 100);
+  document.getElementById('useOut').textContent = `${Math.round(state.used * 100)}%`;
   hudL.textContent = state.nightAmt > .5 ? '5h spent · resets 16:40'
                                          : `5h ${Math.round((1 - state.used) * 100)}% left`;
   hudR.textContent = 'wk 54% left';
@@ -518,6 +689,7 @@ const $ = id => document.getElementById(id);
 $('bRun').onclick = e => { state.running = !state.running; e.target.classList.toggle('on', state.running); };
 $('bDone').onclick = () => { state.running = false; $('bRun').classList.remove('on'); spawnBirds(performance.now()); };
 $('bBirds').onclick = () => spawnBirds(performance.now());
+$('bRings').onclick = () => spawnLakeRings(frozen!=null ? frozen : performance.now());
 $('bReset').onclick = () => { startReset(); $('sUse').value = 0; $('useOut').textContent = '0%'; };
 $('sUse').oninput = e => {
   const v = +e.target.value;
