@@ -159,6 +159,48 @@ an ending that doesn't come.
 Don't bundle commercial music. A plugin shipping copyrighted tracks gets taken
 down rather than popular.
 
+## Usage numbers (the status line)
+
+`scripts/statusline.sh` prints a compact row and saves the payload Claude Code
+hands it to `~/.claude/waiting-room/status.json`. That payload is the only
+local source for the numbers `/usage` shows — the 5-hour and weekly
+percentages and their reset times — which is what the visual viewer needs.
+
+```
+1:35 · 5h 82% left · wk 54% left
+```
+
+Add it in `settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/plugins/waiting-room/scripts/statusline.sh",
+    "refreshInterval": 5
+  }
+}
+```
+
+`refreshInterval` matters: status-line updates are event-driven and go quiet
+while a session is idle, which is exactly when you'd be watching the number.
+
+Two things worth knowing before you add it:
+
+- **A configured status line replaces some of Claude Code's footer hints**
+  (`esc to interrupt`, `? for shortcuts`, the voice-dictation hint). That's
+  the trade for a permanent usage readout.
+- **`rate_limits` only appears for Pro and Max subscribers, and only after the
+  session's first API response.** An empty row before then is correct, not a
+  failure. Each window also disappears from the payload once it resets.
+
+**Already have a status line?** Set `STATUSLINE_CHAIN` to it and its output is
+printed first, with the usage segments appended:
+
+```json
+"command": "CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN='~/.claude/my-statusline.sh' ~/.claude/plugins/waiting-room/scripts/statusline.sh"
+```
+
 ## How long are the waits, really
 
 Every turn appends one tab-separated line to `~/.claude/waiting-room/waits.log`.

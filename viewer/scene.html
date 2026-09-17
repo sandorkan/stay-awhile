@@ -10,7 +10,8 @@
   .frame { position: relative; width: 1440px; max-width: 100%; line-height: 0;
            border-radius: 8px; overflow: hidden; box-shadow: 0 10px 34px rgba(0,0,0,.6); }
   canvas { width: 100%; height: auto; image-rendering: pixelated; }
-  .hud { position: absolute; inset: 0; pointer-events: none; font: 12px ui-monospace, Menlo, monospace; }
+  .hud { position: absolute; inset: 0; pointer-events: none; font: 12px ui-monospace, Menlo, monospace;
+         font-variant-numeric: tabular-nums; }
   .hud span { position: absolute; bottom: 14px; color: #eef3ff; text-shadow: 0 1px 3px rgba(0,0,0,.9); }
   .hud .left { left: 12px; opacity: .85; } .hud .right { right: 12px; opacity: .75; }
   .panel { width: 1440px; max-width: 100%; margin-top: 14px; display: flex; gap: 8px;
@@ -614,7 +615,7 @@ function turnDescription(turn,index) {
   const duration=minutes ? `${minutes}m ${remainder}s` : `${seconds}s`;
   return `Turn ${index+1} · ${duration} · ${outcomeLabels[turn.outcome] || turn.outcome}${turn.switched?' · Switched away':''}`;
 }
-const turnButtons=world.day.map((turn,index)=>{
+function makeTurnBar(turn,index){
   const button=document.createElement('button');
   button.type='button'; button.className='turn-bar'; button.tabIndex=index===0?0:-1;
   button.dataset.outcome=turn.outcome; button.dataset.switched=String(turn.switched);
@@ -639,13 +640,84 @@ const turnButtons=world.day.map((turn,index)=>{
   };
   turnBars.append(button);
   return button;
-});
+}
+const turnButtons=world.day.map(makeTurnBar);
 function selectTurn(index) {
   turnButtons.forEach((button,i)=>{ button.tabIndex=i===index?0:-1; });
   turnButtons[index].focus();
 }
+function rebuildTurns(turns) {
+  if (turns.length === world.day.length &&
+      turns[turns.length - 1].ended === world.day[world.day.length - 1]?.ended) return;
+  world.day = turns;
+  turnBars.textContent = '';
+  turnButtons.length = 0;
+  turns.forEach((turn, i) => turnButtons.push(makeTurnBar(turn, i)));
+  turnBars.style.setProperty('--turn-count', Math.max(1, turns.length));
+  document.getElementById('dayCount').textContent = `${turns.length} turns`;
+}
+
 turnBars.style.setProperty('--turn-count',Math.max(1,world.day.length));
 document.getElementById('dayCount').textContent=`${world.day.length} turns`;
+
+// ---------------------------------------------------------------- live data
+// Served by scripts/viewer-server.py, which reads what the plugin already
+// wrote to disk. Opened from file:// there is no server, so the scene keeps
+// running on its sample day and the controls stay in charge.
+const LIVE = location.protocol.startsWith('http');
+const liveHud = { usage: '' };      // the slow half; the clock is rendered beside it
+function paintHud() {
+  const parts = [];
+  if (liveSince) parts.push(fmtElapsed(Date.now() / 1000 - liveSince));
+  if (liveHud.usage) parts.push(liveHud.usage);
+  setHud(hudL, parts.join(' · '));
+}
+let liveSince = null;               // when the running turn began, epoch seconds
+
+function applyLive(d) {
+  // usage drives the sun; a spent window (or an explicit ran-out) brings night
+  const five = d.five_hour;
+  if (five && typeof five.used === 'number') {
+    state.used = clamp(five.used / 100, 0, 1);
+    const spent = five.used >= 99.5 || d.ran_out_at != null;
+    state.nightAmt = spent ? 1 : 0;
+    if (spent && five.resets_at) {
+      // the moon carries the time left: it rises when the window ran out and
+      // sets exactly at the reset
+      const ranOut = d.ran_out_at || (five.resets_at - 5 * 3600);
+      const span = Math.max(60, five.resets_at - ranOut);
+      state.moonF = clamp((Date.now() / 1000 - ranOut) / span, 0, 1);
+    }
+  }
+  if (!state.seq) {                 // a reset animation owns the scene while it plays
+    state.running = !!d.running;
+    $('bRun') && $('bRun').classList.toggle('on', state.running);
+  }
+  liveSince = d.started_at || null;
+
+  if (Array.isArray(d.turns) && d.turns.length) rebuildTurns(d.turns);
+
+  const hud = [];
+  if (five) hud.push(state.nightAmt > .5 && five.resets_at
+    ? `5h spent · resets ${new Date(five.resets_at * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`
+    : `5h ${Math.round(100 - five.used)}% left`);
+
+  liveHud.usage = hud.join(' · ');
+  paintHud();
+  setHud(hudR, d.seven_day ? `wk ${Math.round(100 - d.seven_day.used)}% left` : '');
+}
+
+const setHud = (el, text) => { if (el.textContent !== text) el.textContent = text; };
+const fmtElapsed = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+if (LIVE) {
+  const es = new EventSource('/events');
+  es.onmessage = e => { try { applyLive(JSON.parse(e.data)); } catch (err) {} };
+  es.onerror = () => {};            // EventSource reconnects on its own
+  // the turn clock ticks locally, so the server only pushes on real change
+  setInterval(paintHud, 1000);
+  document.querySelector('.panel')?.classList.add('live');
+}
 
 // ---------------------------------------------------------------- loop
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -670,9 +742,11 @@ function tick(now) {
   render(reducedMotion.matches ? 0 : T,T);
   document.getElementById('sUse').value = Math.round(state.used * 100);
   document.getElementById('useOut').textContent = `${Math.round(state.used * 100)}%`;
-  hudL.textContent = state.nightAmt > .5 ? '5h spent · resets 16:40'
-                                         : `5h ${Math.round((1 - state.used) * 100)}% left`;
-  hudR.textContent = 'wk 54% left';
+  if (!LIVE) {                       // live data owns the HUD when it's connected
+    setHud(hudL, state.nightAmt > .5 ? '5h spent · resets 16:40'
+                                     : `5h ${Math.round((1 - state.used) * 100)}% left`);
+    setHud(hudR, 'wk 54% left');
+  }
 }
 requestAnimationFrame(tick);
 // #reset in the URL plays the reset sequence on load (used for testing)

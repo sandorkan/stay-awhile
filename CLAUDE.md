@@ -45,6 +45,19 @@ behaviour and options.
 - `wait_start` flags every other in-flight session as switched away from, so
   the switch is recorded against the turn that got abandoned, not the new one.
 
+## Status line
+
+- `scripts/statusline.sh` is the only way to get real rate-limit numbers
+  locally: hooks don't carry them, and there's no `claude usage` command. It
+  saves the raw payload to `$DATA/status.json` (atomic write) for the viewer.
+- It runs on every UI update and is cancelled if a newer update arrives while
+  it's still going, so it must stay ~free: no network, no git, no sleeps.
+  Measured ~25ms per run with jq present; it falls back to sed without jq.
+- `$DATA/ran-out` records when the 5-hour window first hit 100%. The payload
+  only gives the current level, and the viewer's moon needs a rise time.
+- Configured by the user in settings.json, not shipped by the plugin, so it
+  can chain to an existing status line instead of replacing it.
+
 ## Sounds
 
 - `scripts/gen-sounds.py <name ...>` regenerates only the named sounds, e.g.
