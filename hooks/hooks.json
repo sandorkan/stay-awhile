@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stop.sh silent"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/stop.sh session-end"
           }
         ]
       }

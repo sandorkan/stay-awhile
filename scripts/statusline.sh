@@ -13,13 +13,25 @@
 #                   "refreshInterval": 5 }
 
 INPUT="$(cat)"
-DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/waiting-room}"
+DATA="${CLAUDE_PLUGIN_DATA:-}"
+if [ -z "$DATA" ]; then
+  # the hooks publish their real data dir here; fall back to the default
+  DATA="$(cat "$HOME/.claude/waiting-room/data-dir" 2>/dev/null)"
+  [ -d "$DATA" ] || DATA="$HOME/.claude/waiting-room"
+fi
 mkdir -p "$DATA" 2>/dev/null
 
 # Keep the payload whole: the viewer parses it, so write it atomically rather
 # than letting a reader catch a half-written file.
 tmp="$DATA/.status.$$"
-if printf '%s' "$INPUT" > "$tmp" 2>/dev/null; then mv -f "$tmp" "$DATA/status.json" 2>/dev/null
+if printf '%s' "$INPUT" > "$tmp" 2>/dev/null; then
+  mv -f "$tmp" "$DATA/status.json" 2>/dev/null
+  # Keep the last payload that actually carried rate_limits: they're missing
+  # before a session's first API response, and a window disappears once it
+  # resets. Without this the viewer would blank out whenever that happened.
+  case "$INPUT" in
+    *'"rate_limits"'*) cp -f "$DATA/status.json" "$DATA/limits.json" 2>/dev/null ;;
+  esac
 else rm -f "$tmp" 2>/dev/null; fi
 
 # field <jq path> <sed script>  — jq when it's there, sed when it isn't.
@@ -34,6 +46,8 @@ pct_of() {  # the used_percentage inside one rate_limits window
 
 FIVE="$(pct_of five_hour)"
 WEEK="$(pct_of seven_day)"
+RESETS="$(field '.rate_limits.five_hour.resets_at' \
+  's/.*"five_hour"[^}]*"resets_at"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')"
 SID="$(field '.session_id' 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | tr -cd 'A-Za-z0-9_-')"
 
 # The moon needs to know when the window ran out; the payload only says what the
@@ -46,24 +60,22 @@ case "$FIVE" in
 esac
 
 # --- the row itself ---------------------------------------------------------
-left() { awk -v p="$1" 'BEGIN { printf "%d", (100 - p) + 0.5 }' 2>/dev/null; }
+# Percentages are what you've used, like the usage page on claude.ai, and the
+# same wording the viewer shows: "43% · 3:21 · wk 27%".
+used() { awk -v p="$1" 'BEGIN { printf "%d", p + 0.5 }' 2>/dev/null; }
 
 SEGMENTS=""
 add() { [ -n "$1" ] && SEGMENTS="${SEGMENTS:+$SEGMENTS · }$1"; }
 
-# How long the current turn has been running, from the marker start.sh writes.
-if [ -n "$SID" ] && [ -f "$DATA/started/$SID" ]; then
-  began="$(cat "$DATA/started/$SID" 2>/dev/null)"
-  began="${began%% *}"
-  case "$began" in
-    ''|*[!0-9]*) ;;
-    *) secs=$(( $(date +%s) - began ))
-       [ "$secs" -ge 0 ] && add "$(printf '%d:%02d' $((secs / 60)) $((secs % 60)))" ;;
-  esac
-fi
+[ -n "$FIVE" ] && add "$(used "$FIVE")%"
 
-[ -n "$FIVE" ] && add "5h $(left "$FIVE")% left"
-[ -n "$WEEK" ] && add "wk $(left "$WEEK")% left"
+case "$RESETS" in
+  ''|*[!0-9]*) ;;
+  *) secs=$(( RESETS - $(date +%s) ))
+     [ "$secs" -gt 0 ] && add "$(printf '%d:%02d' $((secs / 3600)) $(((secs % 3600) / 60)))" ;;
+esac
+
+[ -n "$WEEK" ] && add "wk $(used "$WEEK")%"
 
 # Someone else's status line goes first, so installing this doesn't replace it.
 CHAIN="${CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN:-}"

@@ -21,6 +21,7 @@ Pure stdlib, localhost only. Nothing here talks to the network.
 
 import argparse
 import json
+import signal
 import os
 import socketserver
 import subprocess
@@ -31,10 +32,29 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VIEWER = os.path.join(HERE, os.pardir, "viewer")
-DEFAULT_DATA = os.path.expanduser("~/.claude/waiting-room")
+DEFAULT_HOME = os.path.expanduser("~/.claude/waiting-room")
+
+
+def default_data():
+    """Where the plugin's hooks actually write, which they publish in a pointer
+    file because only they know it (Claude Code assigns it per plugin)."""
+    try:
+        with open(os.path.join(DEFAULT_HOME, "data-dir"), encoding="utf-8") as f:
+            pointed = f.read().strip()
+        if os.path.isdir(pointed):
+            return pointed
+    except OSError:
+        pass
+    return DEFAULT_HOME
+
+
+DEFAULT_DATA = default_data()
 TAIL_TURNS = 120          # how much of the day the strip shows
 POLL_SECONDS = 1.0
 HEARTBEAT_SECONDS = 15
+IDLE_EXIT_SECONDS = 30 * 60   # nobody watching and no session working: retire
+
+STOPPING = threading.Event()      # set by SIGTERM, so streams can say goodbye
 
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".png": "image/png", ".json": "application/json"}
@@ -86,6 +106,13 @@ def read_state(data):
         pass
 
     limits = status.get("rate_limits") or {}
+    if not limits:
+        # the newest payload had none; fall back to the last one that did
+        try:
+            with open(os.path.join(data, "limits.json"), encoding="utf-8") as f:
+                limits = (json.load(f) or {}).get("rate_limits") or {}
+        except (OSError, ValueError):
+            pass
     turns, started = [], []
     try:
         for name in os.listdir(os.path.join(data, "started")):
@@ -137,6 +164,7 @@ def read_state(data):
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     data_dir = DEFAULT_DATA
+    viewers = 0                      # open /events streams
 
     def log_message(self, *_):            # the terminal is the user's, not ours
         pass
@@ -173,9 +201,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "keep-alive")
         self.end_headers()
+        Handler.viewers += 1
         last, last_beat = None, 0.0
         try:
             while True:
+                if STOPPING.is_set():
+                    # a deliberate stop: let the viewer close itself at once
+                    self.wfile.write(b"event: bye\ndata: {}\n\n")
+                    self.wfile.flush()
+                    return
                 state = read_state(self.data_dir)
                 blob = json.dumps(state)
                 if blob != last:
@@ -186,9 +220,11 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(b": keep-alive\n\n")   # proxies and sleeping tabs
                     self.wfile.flush()
                     last_beat = time.time()
-                time.sleep(POLL_SECONDS)
+                STOPPING.wait(POLL_SECONDS)   # wakes immediately on a stop
         except (BrokenPipeError, ConnectionResetError):
             pass                                            # the page went away
+        finally:
+            Handler.viewers -= 1
 
 
 def main():
@@ -212,6 +248,27 @@ def main():
         print(f"  note: {args.data} doesn't exist yet — it appears once the plugin runs")
     if args.open:
         threading.Timer(0.3, lambda: subprocess.run(["open", url], check=False)).start()
+    # Session end normally stops us. This is the backstop for a session that
+    # died without one: no viewer, no working session, half an hour — retire.
+    def idle_watch():
+        alone_since = time.time()
+        while True:
+            time.sleep(30)
+            active = os.path.join(args.data, "active")
+            busy = Handler.viewers > 0 or (os.path.isdir(active) and os.listdir(active))
+            if busy:
+                alone_since = time.time()
+            elif time.time() - alone_since > IDLE_EXIT_SECONDS:
+                print("idle for 30 minutes with nothing to show — stopping")
+                os._exit(0)
+
+    threading.Thread(target=idle_watch, daemon=True).start()
+
+    def goodbye(_sig, _frame):
+        STOPPING.set()
+        threading.Timer(0.4, lambda: os._exit(0)).start()   # let the streams flush
+
+    signal.signal(signal.SIGTERM, goodbye)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

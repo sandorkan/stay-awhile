@@ -11,6 +11,11 @@
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 
 CUE="${1:-silent}"
+# SessionEnd passes `session-end`: silent like the others, but it also retires
+# the viewer server once no session is left to watch. An idle_prompt sends
+# plain `silent`, which must never shut anything down.
+ENDING=""
+if [ "$CUE" = "session-end" ]; then ENDING=1; CUE=silent; fi
 
 INPUT="$(cat)"
 SID="$(printf '%s' "$INPUT" | session_id)"
@@ -22,12 +27,17 @@ wait_end "$SID" "$CUE" \
   "$(printf '%s' "$INPUT" | json_str cwd)"
 
 if ! any_active; then
-  kill_pidfile "$LOOP_PID"
+  stop_loop
   kill_pidfile "$EYE_PID"
 fi
 
 if [ "$CUE" != "silent" ] && [ "$CUES" != "false" ]; then
   play_once "$CUE"
+fi
+
+# The viewer belongs to whoever is still working; stop it when nobody is.
+if [ -n "$ENDING" ] && ! any_active && command -v python3 >/dev/null 2>&1; then
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" stop >/dev/null 2>&1 &
 fi
 
 exit 0
