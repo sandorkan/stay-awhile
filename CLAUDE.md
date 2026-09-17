@@ -58,6 +58,25 @@ behaviour and options.
 - Configured by the user in settings.json, not shipped by the plugin, so it
   can chain to an existing status line instead of replacing it.
 
+## Viewer
+
+- `scripts/setup.py` owns anything that touches the user's settings.json. It
+  is dry-run by default; `--apply` writes, after a timestamped backup, and it
+  chains to an existing statusLine instead of replacing it.
+- `commands/` holds three slash commands: `init` (one-time status-line setup,
+  must ask before applying), `show` (start the server, open the window) and
+  `close`. Keep them thin: the logic belongs in setup.py, and `show` relays
+  setup.py's printed explanation rather than writing its own — a model
+  paraphrasing it has produced wrong descriptions.
+- `scripts/viewer-server.py` reads the plugin's files and never writes them.
+  It sends the turn's start time, not a clock, so the SSE stream stays quiet
+  until something real changes.
+- The page runs from file:// too (sample data, controls) — that's how to work
+  on the scene without a server. Headless Chrome can't screenshot it while an
+  SSE connection is open; use file:// for rendering checks.
+- Syntax-checking the page is not enough: a runtime ReferenceError leaves a
+  black canvas. Load it in headless Chrome and grep the console for `Uncaught`.
+
 ## Sounds
 
 - `scripts/gen-sounds.py <name ...>` regenerates only the named sounds, e.g.

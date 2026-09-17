@@ -170,7 +170,22 @@ percentages and their reset times — which is what the visual viewer needs.
 1:35 · 5h 82% left · wk 54% left
 ```
 
-Add it in `settings.json`:
+**After installing the plugin, run `/waiting-room:init` once.** It shows what
+it would change, asks before touching your settings, and explains the trade.
+Then `/waiting-room:show` opens the window whenever you want it, and
+`/waiting-room:close` puts it away early (it stops by itself when your last
+session ends).
+
+Under the hood that's `scripts/setup.py`, which also works on its own:
+
+```bash
+python3 scripts/setup.py status     # what's configured, is the server up
+python3 scripts/setup.py install    # dry run; add --apply to write it
+python3 scripts/setup.py open       # start the server and open the viewer
+python3 scripts/setup.py stop
+```
+
+Or add it to `settings.json` by hand:
 
 ```json
 {
@@ -194,12 +209,26 @@ Two things worth knowing before you add it:
   session's first API response.** An empty row before then is correct, not a
   failure. Each window also disappears from the payload once it resets.
 
-**Already have a status line?** Set `STATUSLINE_CHAIN` to it and its output is
-printed first, with the usage segments appended:
+**Already have a status line?** `/waiting-room` chains to it automatically. By
+hand, set `STATUSLINE_CHAIN` to it and its output is printed first, with the
+usage segments appended:
 
 ```json
 "command": "CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN='~/.claude/my-statusline.sh' ~/.claude/plugins/waiting-room/scripts/statusline.sh"
 ```
+
+## The viewer
+
+`scripts/viewer-server.py` serves `viewer/` on `127.0.0.1:8787` and streams
+state to the page as it changes, reading only files the plugin already wrote.
+The scene shows your usage window as a sky: the sun rises when the window is
+fresh and sets as you spend it, so its height is how much you have left. When
+the window is spent the moon takes over, carrying the time until the reset. Wind and water move while a turn runs and settle when it ends; a flock
+lifts when a turn finishes. The strip along the bottom is today's turns —
+press `b` or use the corner toggle to hide it.
+
+**pop out ⧉** opens a floating always-on-top window (Chrome and Edge only).
+The page's tab has to stay open behind it.
 
 ## How long are the waits, really
 
