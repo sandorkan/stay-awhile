@@ -23,10 +23,21 @@
   label { display: flex; align-items: center; gap: 8px; margin-left: 6px; }
   input[type=range] { width: min(220px, 45vw); }
   button:focus-visible, input:focus-visible { outline: 2px solid #e8bda0; outline-offset: 4px; }
+  /* the host page: nothing but a launcher once the scene has moved out */
+  .launcher { max-width: 460px; margin: 10vh auto 0; text-align: center; line-height: 1.6; }
+  .launcher button { font-size: 13px; padding: 9px 16px; margin: 6px 0 10px; }
+  .launcher-msg { color: #c3cad8; margin: 0 0 6px; }
+  .launcher-hint { color: #6f7889; margin: 0; font-size: 11px; }
+  body.host h1, body.host .panel, body.host .note { display: none; }
+  body.host .stage { display: none; }
+  body.host .launcher { margin-top: 22vh; }
+
   /* the floating window holds only the scene */
   body.pip { padding: 0; background: #000; }
-  body.pip .frame { width: 100vw; max-width: none; border-radius: 0; box-shadow: none; }
-  body.pip canvas { width: 100vw; height: auto; display: block; }
+  body.pip { height: 100vh; overflow: hidden; }
+  body.pip .frame { width: 100vw; height: 100vh; max-width: none; border-radius: 0;
+                    box-shadow: none; }
+  body.pip canvas { width: 100%; height: 100%; display: block; object-fit: cover; }
   @media (max-width: 600px) { body { padding: 12px; } .hud { font-size: 10px; } .hud span { bottom: 8px; } }
   .day-strip { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
     width: 40%; padding: 8px 10px 5px; box-sizing: border-box; line-height: 1.3;
@@ -59,16 +70,17 @@
     width: max-content; max-width: 260px; padding: 7px 10px; border-radius: 4px;
     background: rgba(9,20,26,.96); color: #f2e8d7; font-size: 11px; line-height: 1.5;
     box-shadow: 0 2px 10px #0005; pointer-events: none; }
-  /* the floating window holds only the scene */
-  body.pip { padding: 0; background: #000; }
-  body.pip .frame { width: 100vw; max-width: none; border-radius: 0; box-shadow: none; }
-  body.pip canvas { width: 100vw; height: auto; display: block; }
   @media (max-width: 600px) { .day-strip { bottom: 28px; width: 64%; padding: 5px 8px 3px; }
     .turn-bars { height: 22px; } .day-count { font-size: 9px; } .turn-tooltip { max-width: 220px; } }
   .note { margin-top: 12px; max-width: 70ch; line-height: 1.6; }
 </style>
 
 <h1>Waiting Room — live scene</h1>
+<div class="launcher" id="launcher" hidden>
+  <p class="launcher-msg" id="launcherMsg">Waiting Room runs in a small window that floats above your terminal.</p>
+  <button type="button" id="bLaunch">Open the window</button>
+  <p class="launcher-hint" id="launcherHint">Chrome and Edge only. This window can be minimised afterwards.</p>
+</div>
 <div class="stage"><div class="frame">
   <canvas id="cv" width="480" height="225" role="img" aria-label="Animated lake landscape showing the current usage window"></canvas>
   <div class="day-strip" role="group" aria-label="Turn history. Use left and right arrow keys to explore turns.">
@@ -249,6 +261,7 @@ const world = (() => {
 const state = {
   used: .18, nightAmt: 0, moonF: .42, running: true, wind: 1, ripple: 1,
   seq: null,               // the reset sequence, when one is playing
+  shown: null,             // the usage the sky is drawn at: eased toward `used`
   birds: [], lastBird: 0,
   lakeRings: [], nextRingAt: null,
 };
@@ -531,7 +544,13 @@ const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 const frame=ctx.createImageData(W,H);
 function render(now,eventNow=now) {
-  const t=now/1000, used=clamp(state.used,0,1), night=state.nightAmt>.5;
+  // The 5-hour figure is a rolling window: it ticks down as old usage ages out
+  // and up as you spend, so it wobbles by a percent either way. Easing toward
+  // it keeps the sun drifting instead of hopping back and forth.
+  if (state.shown === null) state.shown = state.used;
+  state.shown += (state.used - state.shown) * .04;
+  if (Math.abs(state.used - state.shown) < .0005) state.shown = state.used;
+  const t=now/1000, used=clamp(state.shown,0,1), night=state.nightAmt>.5;
   const key=[Math.round(used*200),Math.round(state.nightAmt*40),Math.round(state.moonF*200)].join('|');
   if(key!==cache.key) {
     cache.pal=paletteFor(used,state.nightAmt);
@@ -666,7 +685,7 @@ function selectTurn(index) {
   turnButtons[index].focus();
 }
 function rebuildTurns(turns) {
-  if (turns.length === world.day.length &&
+  if (turns.length === world.day.length && turns.length &&
       turns[turns.length - 1].ended === world.day[world.day.length - 1]?.ended) return;
   world.day = turns;
   turnBars.textContent = '';
@@ -684,14 +703,21 @@ document.getElementById('dayCount').textContent=`${world.day.length} turns`;
 // wrote to disk. Opened from file:// there is no server, so the scene keeps
 // running on its sample day and the controls stay in charge.
 const LIVE = location.protocol.startsWith('http');
-const liveHud = { usage: '' };      // the slow half; the clock is rendered beside it
+// ?dev keeps the full page: scene, controls and notes. Without it a served page
+// is only a host for the floating window.
+const DEV = /(^|[?&#])dev\b/.test(location.search + location.hash);
+const HOST = LIVE && !DEV;
+const liveHud = { usage: '', resetsAt: null };   // the slow half; clocks tick beside it
 function paintHud() {
   const parts = [];
-  if (liveSince) parts.push(fmtElapsed(Date.now() / 1000 - liveSince));
   if (liveHud.usage) parts.push(liveHud.usage);
+  if (liveHud.resetsAt) {
+    const left = liveHud.resetsAt - Date.now() / 1000;
+    if (left > 0) parts.push(`${Math.floor(left / 3600)}:${String(Math.floor(left / 60) % 60).padStart(2, '0')}`);
+  }
   setHud(hudL, parts.join(' · '));
 }
-let liveSince = null;               // when the running turn began, epoch seconds
+let seenState = false;
 
 function applyLive(d) {
   // usage drives the sun; a spent window (or an explicit ran-out) brings night
@@ -709,28 +735,48 @@ function applyLive(d) {
     }
   }
   if (!state.seq) {                 // a reset animation owns the scene while it plays
+    const wasRunning = state.running;
     state.running = !!d.running;
+    // a turn just ended: the flock lifts, which is the whole point of the birds
+    if (seenState && wasRunning && !state.running) spawnBirds(performance.now());
     $('bRun') && $('bRun').classList.toggle('on', state.running);
   }
-  liveSince = d.started_at || null;
+  seenState = true;                 // the first snapshot is a starting position, not an event
 
-  if (Array.isArray(d.turns) && d.turns.length) rebuildTurns(d.turns);
+  if (Array.isArray(d.turns)) rebuildTurns(d.turns);   // empty is a real answer: no turns yet
 
   const hud = [];
-  if (five) hud.push(state.nightAmt > .5 && five.resets_at
-    ? `5h spent · resets ${new Date(five.resets_at * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`
-    : `5h ${Math.round(100 - five.used)}% left`);
+  if (five) hud.push(state.nightAmt > .5 ? 'spent' : `${Math.round(five.used)}%`);
+  else hud.push('—');               // Pro/Max only, and only after the first API response
+  liveHud.resetsAt = five && five.resets_at ? five.resets_at : null;
 
   liveHud.usage = hud.join(' · ');
   paintHud();
-  setHud(hudR, d.seven_day ? `wk ${Math.round(100 - d.seven_day.used)}% left` : '');
+  setHud(hudR, d.seven_day ? `wk ${Math.round(d.seven_day.used)}%` : '');
 }
 
 const setHud = (el, text) => { if (el.textContent !== text) el.textContent = text; };
-const fmtElapsed = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 if (LIVE) {
   const es = new EventSource('/events');
+  // The server says goodbye when it's stopping — the last session ended, so
+  // the window goes with it. A silent drop (a kill, a crash) closes too, after
+  // a moment's grace in case it's only a restart.
+  function closeViewer() {
+    es.close();
+    if (pipWindow) pipWindow.close();
+    window.close();                  // only works on a window a script opened
+  }
+  es.addEventListener('bye', closeViewer);
+
+  let goneSince = null;
+  setInterval(() => {
+    const down = es.readyState === EventSource.CLOSED || es.readyState === EventSource.CONNECTING;
+    if (!down) { goneSince = null; return; }
+    goneSince = goneSince || Date.now();
+    if (Date.now() - goneSince > 4000) closeViewer();
+  }, 500);
+
   es.onmessage = e => { try { applyLive(JSON.parse(e.data)); } catch (err) {} };
   es.onerror = () => {};            // EventSource reconnects on its own
   // the turn clock ticks locally, so the server only pushes on real change
@@ -741,6 +787,8 @@ if (LIVE) {
 // The floating window, when one is open. Declared here because the loop
 // below schedules frames from it.
 let pipWindow = null;
+const pipClosedHandlers = [];
+const onPipClosed = fn => pipClosedHandlers.push(fn);
 
 // ---------------------------------------------------------------- loop
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -760,7 +808,6 @@ function tick(now) {
   state.wind   += ((state.running ? 1 : .18) - state.wind) * .02;
   state.ripple += ((state.running ? 1 : .35) - state.ripple) * .02;
   stepReset(T);
-  if (!reducedMotion.matches && T - state.lastBird > 45000 + Math.random() * 60000) spawnBirds(T);
 
   if(state.nextRingAt===null) state.nextRingAt=T+45000+Math.random()*45000;
   if(!reducedMotion.matches && T>=state.nextRingAt) spawnLakeRings(T);
@@ -791,7 +838,10 @@ const frameEl = document.querySelector('.frame');
 
 async function popOut() {
   if (pipWindow) { pipWindow.focus(); return; }
-  pipWindow = await documentPictureInPicture.requestWindow({ width: 520, height: 260 });
+  // match the scene's own proportions, so there's no letterbox to begin with
+  const ratio = cv.height / cv.width;
+  pipWindow = await documentPictureInPicture.requestWindow(
+    { width: 520, height: Math.round(520 * ratio) });
   for (const style of document.querySelectorAll('style'))
     pipWindow.document.head.append(style.cloneNode(true));
   pipWindow.document.title = 'Waiting Room';
@@ -802,6 +852,7 @@ async function popOut() {
     document.querySelector('.stage').append(frameEl);
     pipWindow = null;
     schedule();                                    // back to this window's clock
+    pipClosedHandlers.forEach(fn => fn());
   });
   schedule();
 }
@@ -810,8 +861,8 @@ async function popOut() {
 // The floating window has no control panel, so the toggle sits in the scene
 // and answers to `b` in whichever window has focus.
 const dayStrip = document.querySelector('.day-strip');
-let stripShown = true;
-try { stripShown = localStorage.getItem('wr-strip') !== 'off'; } catch (e) {}
+let stripShown = false;             // hidden by default; `b` or the corner toggle shows it
+try { stripShown = localStorage.getItem('wr-strip-2') === 'on'; } catch (e) {}
 
 function setStrip(on) {
   stripShown = on;
@@ -819,7 +870,7 @@ function setStrip(on) {
   const toggle = document.getElementById('stripToggle');
   toggle.textContent = on ? '▁' : '▔';
   toggle.setAttribute('aria-pressed', String(on));
-  try { localStorage.setItem('wr-strip', on ? 'on' : 'off'); } catch (e) {}
+  try { localStorage.setItem('wr-strip-2', on ? 'on' : 'off'); } catch (e) {}
 }
 setStrip(stripShown);
 document.getElementById('stripToggle').onclick = () => setStrip(!stripShown);
@@ -833,9 +884,38 @@ $('bDone').onclick = () => { state.running = false; $('bRun').classList.remove('
 $('bBirds').onclick = () => spawnBirds(performance.now());
 $('bRings').onclick = () => spawnLakeRings(frozen!=null ? frozen : performance.now());
 $('bReset').onclick = () => { startReset(); $('sUse').value = 0; $('useOut').textContent = '0%'; };
-if ('documentPictureInPicture' in window) {
+const canPop = 'documentPictureInPicture' in window;
+if (canPop && DEV) {
   $('bPop').hidden = false;
   $('bPop').onclick = () => popOut().catch(() => {});
+}
+
+if (HOST) {
+  document.body.classList.add('host');
+  $('launcher').hidden = false;
+  const msg = $('launcherMsg'), hint = $('launcherHint'), btn = $('bLaunch');
+  if (!canPop) {
+    btn.hidden = true;
+    msg.textContent = 'Your browser can\'t open a floating window.';
+    hint.innerHTML = 'Chrome or Edge can. Meanwhile, add <code>?dev</code> to the address to see the scene here.';
+  } else {
+    // the browser needs a gesture, so this is the one click we ask for
+    btn.onclick = () => popOut().then(() => {
+      document.body.classList.add('popped');
+      msg.textContent = 'The scene is in the floating window. You can minimise this one.';
+      btn.textContent = 'Close it';
+      btn.onclick = () => pipWindow && pipWindow.close();
+      hint.textContent = 'Or close the floating window itself.';
+    }).catch(() => { hint.textContent = 'The window did not open — try clicking again.'; });
+  }
+  onPipClosed(() => {
+    document.body.classList.remove('popped');
+    msg.textContent = 'Waiting Room runs in a small window that floats above your terminal.';
+    btn.textContent = 'Open the window';
+    btn.onclick = () => $('bLaunch').click();   // rebound below on next open
+    hint.textContent = 'Chrome and Edge only. This window can be minimised afterwards.';
+    location.reload();                           // simplest way back to a clean host
+  });
 }
 $('sUse').oninput = e => {
   const v = +e.target.value;

@@ -22,4 +22,8 @@ echo "working ${SECS}s  (track=${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm}
 sleep "$SECS"
 echo "-> $END"
 "$ROOT/scripts/stop.sh" "$END" </dev/null
-sleep 2 # let the cue finish before returning
+# only wait for a cue that's actually going to play
+case "$END" in
+  silent) ;;
+  *) [ "${CLAUDE_PLUGIN_OPTION_CUES:-true}" = "false" ] || sleep 2 ;;
+esac
