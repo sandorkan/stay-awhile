@@ -58,13 +58,32 @@
   .turn-bar:hover::before, .turn-bar:focus-visible::before { opacity: 1; }
   .turn-bar:focus-visible { outline: 1px solid #eadbc0; outline-offset: 2px; }
   .day-strip[hidden] { display: none; }
-  .strip-toggle { position: absolute; right: 8px; top: 8px; z-index: 2;
-    width: 18px; height: 18px; padding: 0; line-height: 1; cursor: pointer;
+  .settings-toggle { position: absolute; right: 8px; top: 8px; z-index: 2;
+    width: 28px; height: 28px; padding: 0; line-height: 1; cursor: pointer;
     color: #e9ddc3; background: rgba(6,17,22,.5); border: 1px solid rgba(233,221,195,.25);
-    border-radius: 3px; font: 11px ui-monospace, Menlo, monospace; opacity: 0;
+    border-radius: 3px; font: 26px/1 ui-monospace, Menlo, monospace; opacity: 0;
+    display: grid; place-items: center;
     transition: opacity .18s ease; }
-  .frame:hover .strip-toggle, .strip-toggle:focus-visible { opacity: .85; }
-  .strip-toggle:hover { opacity: 1; }
+  .frame:hover .settings-toggle, .settings-toggle:focus-visible, .settings-toggle[aria-expanded="true"] { opacity: .85; }
+  .settings-toggle:hover { opacity: 1; }
+  .settings-panel { position: absolute; z-index: 3; top: 42px; right: 8px;
+    width: min(280px, calc(100% - 16px)); max-height: calc(100% - 50px);
+    box-sizing: border-box; overflow: auto; padding: 14px; line-height: 1.5;
+    background: rgba(9,24,30,.96); color: #eee5d5; border: 1px solid #617064;
+    border-radius: 6px; box-shadow: 0 6px 24px #0006; }
+  .settings-panel[hidden] { display: none; }
+  .settings-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .settings-heading h2 { font-size: 12px; font-weight: 500; margin: 0; }
+  .settings-heading button { padding: 2px 7px; background: transparent; }
+  .settings-panel label { margin: 0 0 6px; }
+  .settings-panel select { width: 100%; font: inherit; color: #eee5d5; background: #172c32;
+    border: 1px solid #617064; border-radius: 4px; padding: 7px; }
+  .settings-panel select:focus-visible { outline: 2px solid #e8bda0; outline-offset: 2px; }
+  .settings-panel p { color: #b7c1b9; font-size: 10px; margin: 7px 0 12px; }
+  .settings-panel .settings-feedback { margin-bottom: 0; color: #e9ddc3; }
+  .settings-panel input { accent-color: #c8bd9f; }
+  @media (hover: none) { .settings-toggle { opacity: .85; } }
+  @media (prefers-reduced-motion: reduce) { .settings-toggle { transition: none; } }
   .day-count { display: block; margin-top: 2px; font-size: 10px; opacity: .85; }
   .turn-tooltip { position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%);
     width: max-content; max-width: 260px; padding: 7px 10px; border-radius: 4px;
@@ -88,8 +107,17 @@
     <span class="day-count" id="dayCount"></span>
     <div class="turn-tooltip" id="turnTooltip" role="tooltip" hidden></div>
   </div>
-  <button type="button" class="strip-toggle" id="stripToggle"
-          title="Show or hide the turn history (b)" aria-label="Toggle turn history">▁</button>
+  <button type="button" class="settings-toggle" id="settingsToggle"
+          title="Settings" aria-label="Settings" aria-expanded="false" aria-controls="settingsPanel">⚙</button>
+  <section class="settings-panel" id="settingsPanel" aria-labelledby="settingsTitle" hidden>
+    <div class="settings-heading"><h2 id="settingsTitle">Settings</h2>
+      <button type="button" id="settingsClose" aria-label="Close settings">×</button></div>
+    <label for="musicSelect">Music</label>
+    <select id="musicSelect" aria-describedby="musicHint settingsFeedback" disabled></select>
+    <p id="musicHint">Saved for future turns. Current music keeps playing.</p>
+    <label><input type="checkbox" id="stripToggle"> Show turn stats</label>
+    <p class="settings-feedback" id="settingsFeedback" role="status" aria-live="polite"></p>
+  </section>
   <div class="hud"><span class="left" id="hudL"></span><span class="right" id="hudR"></span></div>
 </div></div>
 <div class="panel">
@@ -111,6 +139,11 @@ window reset is a sunrise. Clouds always drift, occasional rings spread across t
 const hudL=document.getElementById('hudL'), hudR=document.getElementById('hudR');
 const dayCount=document.getElementById('dayCount');
 const stripToggle=document.getElementById('stripToggle');
+const settingsToggle=document.getElementById('settingsToggle');
+const settingsPanel=document.getElementById('settingsPanel');
+const settingsClose=document.getElementById('settingsClose');
+const musicSelect=document.getElementById('musicSelect');
+const settingsFeedback=document.getElementById('settingsFeedback');
 // ---------------------------------------------------------------- palettes
 const MOODS = {
   dawn: {
@@ -876,24 +909,100 @@ async function popOut() {
   schedule();
 }
 
-// ---------------------------------------------------------------- turn strip toggle
-// The floating window has no control panel, so the toggle sits in the scene
-// and answers to `b` in whichever window has focus.
+// ---------------------------------------------------------------- scene settings
+// Capture nodes before PiP adoption; use their current ownerDocument for new DOM.
 const dayStrip = document.querySelector('.day-strip');
-let stripShown = false;             // hidden by default; `b` or the corner toggle shows it
+let stripShown = false;
 try { stripShown = localStorage.getItem('wr-strip-2') === 'on'; } catch (e) {}
-
 function setStrip(on) {
   stripShown = on;
   dayStrip.hidden = !on;
-  const toggle = stripToggle;
-  toggle.textContent = on ? '▁' : '▔';
-  toggle.setAttribute('aria-pressed', String(on));
+  stripToggle.checked = on;
   try { localStorage.setItem('wr-strip-2', on ? 'on' : 'off'); } catch (e) {}
 }
 setStrip(stripShown);
-stripToggle.onclick = () => setStrip(!stripShown);
-const stripKey = e => { if (e.key === 'b' && !e.metaKey && !e.ctrlKey) setStrip(!stripShown); };
+stripToggle.onchange = () => setStrip(stripToggle.checked);
+let savedTrack = null, savingMusic = false, settingsLoad = 0;
+async function settingsRequest(method = 'GET', data) {
+  const response = await fetch('/settings', {
+    method, headers: {'X-Waiting-Room':'1', ...(data ? {'Content-Type':'application/json'} : {})},
+    ...(data ? {body:JSON.stringify(data)} : {}), cache:'no-store'
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Could not save settings. Try again.');
+  return result;
+}
+function addMusicOption(parent, value, label) {
+  const option = musicSelect.ownerDocument.createElement('option');
+  option.value = value; option.textContent = label; parent.append(option);
+}
+async function loadMusic() {
+  const request = ++settingsLoad;
+  musicSelect.disabled = true;
+  settingsFeedback.textContent = LIVE ? 'Loading music…' : 'Open the live viewer to change music.';
+  if (!LIVE) return;
+  try {
+    const data = await settingsRequest();
+    if (request !== settingsLoad) return;
+    musicSelect.replaceChildren();
+    addMusicOption(musicSelect, 'none', 'Off');
+    const available = new Set(['none']);
+    for (const [category, tracks] of Object.entries(data.groups)) {
+      const group = musicSelect.ownerDocument.createElement('optgroup');
+      group.label = category || 'Other';
+      if (category && category !== 'breathing') {
+        addMusicOption(group, `shuffle-${category}`, 'Shuffle'); available.add(`shuffle-${category}`);
+      }
+      for (const track of tracks) {
+        addMusicOption(group, track, track.split('/').pop().replace(/-/g, ' ')); available.add(track);
+      }
+      musicSelect.append(group);
+    }
+    if (!available.has(data.track)) addMusicOption(musicSelect, data.track, `${data.track} (unavailable)`);
+    savedTrack = data.track;
+    musicSelect.value = data.track;
+    musicSelect.disabled = false;
+    settingsFeedback.textContent = '';
+  } catch (e) {
+    if (request === settingsLoad) settingsFeedback.textContent = 'Could not load music. Close and reopen settings to retry.';
+  }
+}
+function closeSettings(restoreFocus = true) {
+  settingsPanel.hidden = true;
+  settingsToggle.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) settingsToggle.focus();
+}
+settingsToggle.onclick = () => {
+  if (!settingsPanel.hidden) return closeSettings();
+  settingsPanel.hidden = false;
+  settingsToggle.setAttribute('aria-expanded', 'true');
+  settingsClose.focus();
+  if (!savingMusic) loadMusic();
+};
+settingsClose.onclick = () => closeSettings();
+musicSelect.onchange = async () => {
+  if (savingMusic || savedTrack === null) return;
+  savingMusic = true; musicSelect.disabled = true;
+  settingsFeedback.textContent = 'Saving…';
+  try {
+    const result = await settingsRequest('POST', {track:musicSelect.value, expected:savedTrack});
+    savedTrack = result.track; musicSelect.value = result.track;
+    settingsFeedback.textContent = 'Saved. Current playback is unchanged.';
+  } catch (e) {
+    musicSelect.value = savedTrack;
+    settingsFeedback.textContent = e.message || 'Could not save music. Try again.';
+  } finally {
+    savingMusic = false; musicSelect.disabled = false;
+  }
+};
+frameEl.addEventListener('pointerdown', e => {
+  if (!settingsPanel.hidden && !settingsPanel.contains(e.target) && !settingsToggle.contains(e.target)) closeSettings(false);
+});
+const stripKey = e => {
+  if (e.key === 'Escape' && !settingsPanel.hidden) { closeSettings(); e.preventDefault(); return; }
+  if (e.target?.matches?.('input,select,textarea,button') || e.target?.isContentEditable) return;
+  if (e.key === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey) setStrip(!stripShown);
+};
 document.addEventListener('keydown', stripKey);
 
 // ---------------------------------------------------------------- controls

@@ -7,8 +7,9 @@ Routes:
     /            the scene
     /state       one JSON snapshot (handy for curl)
     /events      the same snapshot pushed on change (server-sent events)
+    /settings    read/save music via the setup helper (viewer requests only)
 
-Reads (only its own server.pid identity record is written):
+Reads (music settings writes are delegated to setup.py):
     status.json     the status line's payload — the real rate-limit numbers
     ran-out         when the 5-hour window hit 100%, for the moon's rise
     started/<sid>   a turn in flight: "<epoch> <concurrent> <think>"
@@ -30,6 +31,7 @@ import subprocess
 import sys
 import threading
 import time
+import setup as settings_tool
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from runtime import fresh_markers, write_server_record, remove_server_record
 
@@ -203,8 +205,48 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def settings_allowed(self):
+        # A custom header requires cross-origin browsers to preflight (we do
+        # not allow CORS). Host checking also rejects DNS rebinding requests.
+        host = self.headers.get("Host", "")
+        allowed = {f"127.0.0.1:{self.server.server_port}",
+                   f"localhost:{self.server.server_port}"}
+        return (host in allowed and self.headers.get("X-Waiting-Room") == "1"
+                and self.headers.get("Origin", f"http://{host}") == f"http://{host}"
+                and self.headers.get("Sec-Fetch-Site", "same-origin") == "same-origin")
+
+    def settings_response(self, code, value):
+        return self._send(code, json.dumps(value).encode(), "application/json")
+
+    def do_POST(self):
+        if self.path != "/settings":
+            return self.settings_response(404, {"error": "Not found."})
+        if not self.settings_allowed():
+            return self.settings_response(403, {"error": "Open settings from the viewer."})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 4096 or self.headers.get("Content-Type") != "application/json":
+                raise ValueError("Invalid settings request.")
+            payload = json.loads(self.rfile.read(length))
+            if (not isinstance(payload, dict) or set(payload) != {"track", "expected"}
+                    or not isinstance(payload["expected"], str)):
+                raise ValueError("Invalid settings request.")
+            track = settings_tool.save_music(payload["track"], payload["expected"])
+            return self.settings_response(200, {"track": track})
+        except ValueError as e:
+            return self.settings_response(400, {"error": str(e)})
+        except (OSError, TypeError, AttributeError):
+            return self.settings_response(500, {"error": "Could not save music. Check Claude settings and file permissions."})
+
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path == "/settings":
+            if not self.settings_allowed():
+                return self.settings_response(403, {"error": "Open settings from the viewer."})
+            try:
+                return self.settings_response(200, settings_tool.music_settings())
+            except (OSError, ValueError, TypeError, AttributeError):
+                return self.settings_response(500, {"error": "Could not read music settings. Check Claude settings and try again."})
         if path == "/state":
             return self._send(200, json.dumps(read_state(self.data_dir)).encode(),
                               "application/json")

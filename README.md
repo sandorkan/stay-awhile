@@ -224,8 +224,8 @@ usage segments appended:
 ## The viewer
 
 `scripts/viewer-server.py` serves `viewer/` on `127.0.0.1:8787` and streams
-state to the page as it changes. It reads hook/status data and maintains only
-its own server identity file.
+state to the page as it changes. It reads hook/status data, maintains its own
+server identity file, and saves music selections through the setup helper.
 The scene shows your usage window as a sky: the sun rises when the window is
 fresh and moves toward sunset as you spend it. Its position along the arc
 represents the percentage used; the corner label shows the exact percentage.
@@ -234,8 +234,8 @@ Wind and water move while a turn runs and settle when it ends or waits for input
 a flock lifts when a turn completes. The strip along the bottom shows up
 to 120 of today's completed turns, using your computer's local date. Permission
 checkpoints stay in the log but don't count as additional turns in the strip.
-The strip is hidden initially; press `b` or use the corner toggle to show or
-hide it. Hover, tap, or use arrow keys on the bars for duration and outcome.
+The strip is hidden initially; press `b` or open the top-right gear and toggle
+**Show turn stats**. Its visibility is remembered in this browser. Hover, tap, or use arrow keys on the bars for duration and outcome.
 
 `/waiting-room:show` opens a small host window. Click **Open the window** to
 move the scene into a floating, always-on-top window (Chrome and Edge only).
@@ -246,6 +246,19 @@ the page instead.
 For development, `python3 scripts/setup.py open --dev` shows the scene and test
 controls, including **pop out ⧉** on supported browsers. Opening
 `viewer/scene.html` directly uses sample data instead of live data.
+
+The top-right gear opens **Settings** in both the browser scene and floating
+window. **Music** lists tracks by category, with shuffle options and **Off**.
+Selections save automatically to Claude's user plugin settings, sharing the
+same preference as `/config` and `/waiting-room:music`. The current loop keeps
+playing; each new prompt reads the saved preference directly, so the choice
+applies when a new loop starts without restarting Claude. A permission-pause
+resume keeps that turn's original track. Reopening the panel reads the latest saved choice. **Show turn
+stats** is a browser preference and does not change Claude settings. Press
+Escape or click outside the panel to close it.
+
+Music settings need the local server; the `file://` demo still lets you toggle
+turn stats but explains that music changes require the live viewer.
 
 The moon advances locally even while no new server events arrive. When a
 cached usage window expires, the viewer clears its percentage to a dash until
@@ -314,7 +327,14 @@ awk -F'\t' '$3 == "needs-you" {next} NR>1 && $16<20 && $16>=0 {short[bucket]++} 
 `/waiting-room:music` opens a category/track menu, plays a short preview, and
 asks whether to keep it. Previews use a separate temporary directory and
 never redirect live status data or stop another session's audio. Keeping a
-track backs up `settings.json` and applies the choice from your next prompt.
+track backs up `settings.json` and saves the choice without interrupting audio.
+The viewer's Music picker uses the same save function, with atomic writes and
+checks for a selection changed elsewhere. New turns read the user preference
+directly because Claude can keep plugin option environment variables unchanged
+for an entire session. A valid saved track takes priority over the hook's track
+environment variable; missing or unreadable settings fall back to that variable.
+Simulations and previews always honor their explicit track instead. An already
+playing loop shared with another session continues until all active turns stop.
 You can also run `python3 scripts/setup.py music list`, `music play <track>`,
 and `music set <track>` directly.
 

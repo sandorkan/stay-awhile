@@ -22,6 +22,8 @@ import socket
 import subprocess
 import sys
 import time
+import tempfile
+import threading
 from datetime import datetime
 from runtime import fresh_markers, read_server_record, owns_server, remove_server_record
 
@@ -136,7 +138,84 @@ def resolve(name, grouped):
     return hits[0] if len(hits) == 1 else None
 
 
+MUSIC_LOCK = threading.Lock()
+DEFAULT_TRACK = "breathing/4-6-calm"
+
+
+def music_settings():
+    settings, err = load_settings()
+    if err or not isinstance(settings, dict):
+        raise ValueError("Claude settings could not be read. Fix settings.json and try again.")
+    return {"track": current_track(settings) or DEFAULT_TRACK, "groups": tracks()}
+
+
+def save_music(track, expected=None):
+    """Shared by the viewer and slash command; never touches the audio player."""
+    if not isinstance(track, str) or not resolve(track, tracks()):
+        raise ValueError("Choose an available track, shuffle option, or Off.")
+    track = resolve(track, tracks())
+    with MUSIC_LOCK:
+        settings, err = load_settings()
+        if err or not isinstance(settings, dict):
+            raise ValueError("Claude settings could not be read. Fix settings.json and try again.")
+        current = current_track(settings) or DEFAULT_TRACK
+        if expected is not None and expected != current:
+            raise ValueError("Music changed elsewhere. Close and reopen settings before choosing again.")
+        if track == current:
+            return track
+        # Resolve symlinks so atomic replacement doesn't sever a user's link.
+        path = os.path.realpath(SETTINGS)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        original = None
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                original = f.read()
+            # Re-read before editing; unrelated settings always survive.
+            settings = json.loads(original)
+            if (current_track(settings) or DEFAULT_TRACK) != current:
+                raise ValueError("Music changed elsewhere. Close and reopen settings before choosing again.")
+        settings.setdefault("pluginConfigs", {}).setdefault(plugin_id(settings), {}) \
+                .setdefault("options", {})["track"] = track
+        fd, temporary = tempfile.mkstemp(prefix=".waiting-room-", dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            if original is not None:
+                with open(path, "rb") as f:
+                    if f.read() != original:
+                        raise ValueError("Settings changed while saving. Try again.")
+                shutil.copy2(path, f"{path}.bak-{datetime.now():%Y%m%d-%H%M%S-%f}")
+                shutil.copymode(path, temporary)
+            elif os.path.exists(path):
+                raise ValueError("Settings changed while saving. Try again.")
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    return track
+
+
+def hook_track():
+    """Read the saved preference without relying on Claude's cached hook env."""
+    fallback = os.environ.get("CLAUDE_PLUGIN_OPTION_TRACK") or DEFAULT_TRACK
+    try:
+        settings, err = load_settings()
+        if not err and isinstance(settings, dict):
+            selected = current_track(settings)
+            if isinstance(selected, str) and resolve(selected, tracks()):
+                return resolve(selected, tracks())
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return fallback
+
+
 def cmd_music(args):
+    if args.action == "current":
+        print(hook_track())
+        return 0
     settings, err = load_settings()
     if err:
         print(err, file=sys.stderr)
@@ -175,16 +254,12 @@ def cmd_music(args):
         print(f"played {track}")
         return 0
 
-    # set
-    if os.path.exists(SETTINGS):
-        backup = f"{SETTINGS}.bak-{datetime.now():%Y%m%d-%H%M%S}"
-        shutil.copy2(SETTINGS, backup)
-    settings.setdefault("pluginConfigs", {}).setdefault(plugin_id(settings), {}) \
-            .setdefault("options", {})["track"] = track
-    with open(SETTINGS, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
-        f.write("\n")
-    print(f"track set to {track} (under {plugin_id(settings)}); it applies from your next prompt")
+    try:
+        save_music(track)
+    except (OSError, ValueError, TypeError, AttributeError):
+        print("Could not save music; check settings.json and its permissions.", file=sys.stderr)
+        return 1
+    print(f"track saved: {track}; current playback is unchanged")
     return 0
 
 
@@ -351,7 +426,7 @@ def main():
     o = sub.add_parser("open"); o.add_argument("--dev", action="store_true",
                                                help="the full page with controls")
     m = sub.add_parser("music")
-    m.add_argument("action", choices=["list", "play", "set"])
+    m.add_argument("action", choices=["list", "play", "set", "current"])
     m.add_argument("track", nargs="?")
     m.add_argument("--seconds", type=int, default=5)
     args = ap.parse_args()

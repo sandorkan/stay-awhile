@@ -20,6 +20,7 @@ if [ "$CUE" = "session-end" ]; then ENDING=1; CUE=silent; fi
 INPUT="$(cat)"
 SID="$(printf '%s' "$INPUT" | session_id)"
 rm -f "$ACTIVE/$SID"
+[ "$CUE" != "needs-you" ] && rm -f "$DATA/turn-track/$SID"
 [ -n "$ENDING" ] && rm -f "$SESSIONS/$SID"
 
 [ "$CUE" = "needs-you" ] && count_bump "$(perm_count "$SID")"

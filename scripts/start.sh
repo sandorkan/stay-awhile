@@ -24,6 +24,16 @@ else
 fi
 
 TRACK="${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm}"
+# Claude may keep the plugin option environment from session startup. Read the
+# shared saved preference on a new turn instead. Simulations keep their explicit
+# audition track and must never pick up the user's live preference.
+TURN_TRACK="$DATA/turn-track/$SID"
+if [ "$1" = "resume" ] && [ -f "$TURN_TRACK" ]; then
+  TRACK="$(cat "$TURN_TRACK" 2>/dev/null)"
+elif [ "${WAITING_ROOM_SIMULATION:-}" != 1 ] && command -v python3 >/dev/null 2>&1; then
+  SAVED_TRACK="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" music current 2>/dev/null)"
+  [ -n "$SAVED_TRACK" ] && TRACK="$SAVED_TRACK"
+fi
 
 # Validate against a real file rather than trusting the configured string.
 # The value comes from a settings file and lands in a path; tracks live in
@@ -42,6 +52,12 @@ case "$TRACK" in
       echo "$TRACK" > "$CURRENT" 2>/dev/null
     fi ;;
 esac
+
+# Remember the resolved song for permission-pause resumes of this turn.
+# A setting changed mid-turn takes effect on a later prompt, not on resume.
+mkdir -p "$DATA/turn-track" 2>/dev/null
+printf '%s\n' "$TRACK" > "$TURN_TRACK.$$" 2>/dev/null &&
+  mv -f "$TURN_TRACK.$$" "$TURN_TRACK" 2>/dev/null
 
 if [ "$TRACK" != "none" ] && [ -f "$SOUNDS/$TRACK.wav" ]; then
   start_loop "$TRACK"

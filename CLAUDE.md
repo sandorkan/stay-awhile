@@ -34,6 +34,10 @@ behaviour and options.
 - `session.sh` registers SessionStart; prompts and the status line refresh
   `sessions/<sid>`. SessionEnd removes it. `active/` means working, while
   `started/` also includes permission-paused turns; do not interchange them.
+- New prompts resolve music via `setup.py music current`, reading the saved
+  user preference ahead of Claude's session-cached track environment. Simulations
+  bypass this read. `turn-track/<sid>` holds the resolved song for permission
+  resumes; completed turns remove it. Saving settings must not restart audio.
 - Server PID records include process start time and command. Never signal an
   unverified or legacy bare PID; refuse safely if ownership can't be established.
 
@@ -75,7 +79,7 @@ behaviour and options.
 
 ## Viewer
 
-- `scripts/setup.py` owns anything that touches the user's settings.json. It
+- `scripts/setup.py` owns anything that touches the user's settings.json.
   Its `install` command is dry-run by default; `--apply` writes after a backup and
   chains to an existing statusLine instead of replacing it.
 - `commands/` holds four slash commands: `init` (one-time status-line setup,
@@ -85,7 +89,15 @@ behaviour and options.
   setup.py's printed explanation rather than writing its own — a model
   paraphrasing it has produced wrong descriptions.
 - `scripts/viewer-server.py` reads hook-owned data without modifying it. It
-  only writes and cleans up its own `server.pid` identity record.
+  writes and cleans up its own `server.pid` identity record; `/settings` delegates
+  music saves to `setup.save_music`, also used by the music command. Keep saves
+  atomic, preserve unrelated settings, and never start/stop playback here.
+- `/settings` requires the viewer's custom header and a loopback Host with the
+  server's port; reject foreign origins and do not enable CORS. Never expose
+  arbitrary settings edits or shell commands through this endpoint.
+- The gear and its settings panel live inside the adopted frame. The turn-stats
+  checkbox keeps the `wr-strip-2` browser preference. File demos disable music
+  changes. Keyboard shortcuts must not fire inside form controls.
   It sends the turn's start time, not a clock, so the SSE stream stays quiet
   until something real changes. The moon and reset countdown advance locally.
 - The strip uses the local date and excludes `needs-you` checkpoints; it shows

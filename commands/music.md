@@ -26,7 +26,7 @@ tool adds its own free-text choice, so anything extra goes in the wording.
    changes nothing. Say what's playing while it does.
 4. **Keep it?** Three options: keep, hear another, cancel. On "hear another",
    go back to step 2.
-5. **On keep**: `music set <track>`. Say it applies from their next prompt and
+5. **On keep**: `music set <track>`. Say it saves the choice for future turns without interrupting playback, and
    that settings.json is backed up first.
 
 Play before setting, so nothing changes until they say so. If they already
