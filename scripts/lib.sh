@@ -213,11 +213,13 @@ any_active() {
 # message. Zeros mean "couldn't measure" (no python, no transcript), never 0.
 
 # count_get <var> <file>  — a non-negative integer from a file, 0 otherwise.
+# Locals in these <var>-setting helpers are double-underscored: bash scopes
+# dynamically, so a local with the caller's name would swallow the result.
 count_get() {
-  local n
-  readf n "$2"
-  case "$n" in ''|*[!0-9]*) n=0 ;; esac
-  printf -v "$1" '%s' "$n"
+  local __n
+  readf __n "$2"
+  case "$__n" in ''|*[!0-9]*) __n=0 ;; esac
+  printf -v "$1" '%s' "$__n"
 }
 
 count_bump() {

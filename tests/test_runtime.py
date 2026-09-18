@@ -51,7 +51,10 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(server.read_state(str(self.data))['running'])
         self.hook('start.sh', 'A', 'resume')
         self.assertTrue(server.read_state(str(self.data))['running'])
+        self.hook('start.sh', 'A', 'resume')
+        self.assertEqual((self.data/'count/A.tools').read_text().strip(), '2')  # one per tool call
         self.hook('stop.sh', 'A', 'done')
+        self.assertEqual((self.data/'waits.log').read_text().split('\t')[13], '2')
         self.assertEqual(runtime.fresh_markers(str(self.data), 'sessions'), ['A'])
         self.assertFalse(server.read_state(str(self.data))['running'])
 
