@@ -113,7 +113,7 @@
     <div class="settings-heading"><h2 id="settingsTitle">Settings</h2>
       <button type="button" id="settingsClose" aria-label="Close settings">×</button></div>
     <label for="sceneSelect">Scene</label>
-    <select id="sceneSelect"><option value="lakeside">Lakeside</option><option value="alpine">Alpine Valley</option></select>
+    <select id="sceneSelect"><option value="lakeside">Lakeside</option><option value="alpine">Alpine Valley</option><option value="coast">Coastal Lighthouse</option></select>
     <p>Remembered in this browser.</p>
     <label for="musicSelect">Music</label>
     <select id="musicSelect" aria-describedby="musicHint settingsFeedback" disabled></select>
@@ -148,12 +148,12 @@ const settingsClose=document.getElementById('settingsClose');
 const musicSelect=document.getElementById('musicSelect');
 const sceneSelect=document.getElementById('sceneSelect');
 let selectedScene='lakeside';
-try { if(localStorage.getItem('wr-scene')==='alpine') selectedScene='alpine'; } catch(e) {}
+try { const saved=localStorage.getItem('wr-scene'); if(['alpine','coast'].includes(saved)) selectedScene=saved; } catch(e) {}
 sceneSelect.value=selectedScene;
 sceneSelect.onchange=()=>{
-  selectedScene=sceneSelect.value==='alpine'?'alpine':'lakeside';
+  selectedScene=['alpine','coast'].includes(sceneSelect.value)?sceneSelect.value:'lakeside';
   cache.key='';
-  document.getElementById('bRings').disabled=selectedScene==='alpine';
+  document.getElementById('bRings').disabled=selectedScene!=='lakeside';
   try {localStorage.setItem('wr-scene',selectedScene);} catch(e) {}
 };
 const settingsFeedback=document.getElementById('settingsFeedback');
@@ -510,7 +510,7 @@ function buildStatic(pal,used,night) {
     if(night && (x+6)**2+(y-2)**2<radius*radius) continue;
     put(body.x+x,body.y+y,pal.light);
   }
-  if(selectedScene==='alpine') return {px,body};
+  if(selectedScene!=='lakeside') return {px,body};
   // Five overlapping silhouettes, with increasingly crisp forested ridgelines.
   const ridges=[
     {base:112,amp:21,freq:.017,seed:1.2,col:mix(pal.ridge[0],pal.haze,.3)},
@@ -540,6 +540,7 @@ function buildStatic(pal,used,night) {
 
 // Foreground is cached separately so tiny leaf movements don't rebuild the sky.
 function buildForeground(pal,windPhase) {
+  if(selectedScene==='coast') return buildCoastForeground(pal,windPhase);
   const px=new Uint8ClampedArray(W*H*4), put=painter(px);
   for(let x=0;x<W;x++) {
     const edge=Math.pow(Math.abs(x-W/2)/(W/2),3);
@@ -729,6 +730,122 @@ function drawAlpineMist(put,pal,t) {
   }
 }
 
+// ---------------------------------------------------------------- coastal lighthouse
+const COAST_HORIZON=113;
+function coastEdge(x) {
+  return 161+(380-x)*.19+Math.sin(x*.057)*4+Math.sin(x*.21)*1.5;
+}
+function coastalLightAmount() {
+  return Math.max(state.nightAmt,clamp((state.shown-.72)/.25,0,1));
+}
+function buildCoastForeground(pal,wind) {
+  const px=new Uint8ClampedArray(W*H*4), put=painter(px);
+  // An eroded promontory reaches from the right into open water. Broad rock
+  // planes carry the texture, with broken horizontal strata between them.
+  for(let x=246;x<W;x++) {
+    const top=coastEdge(x)+Math.max(0,310-x)*.42;
+    for(let y=Math.ceil(top);y<H;y++) {
+      const d=y-top, facet=Math.sin(x*.057+d*.04)+Math.sin(x*.13-d*.1)*.4;
+      let c=mix(pal.ridge[1],pal.bark,.37+facet*.12);
+      const fissure=Math.sin(y*.47+x*.10+Math.sin(x*.037)*2);
+      if(fissure>.86 && noise[y*W+x]>.25)c=mix(c,pal.bark,.30);
+      if(BAYER[y&3][x&3]<noise[y*W+x]*.3)c=mix(c,pal.mist,.12);
+      if(d<5)c=mix(pal.bankTop,pal.leafLit,.2);
+      if(d<1.5)c=mix(c,pal.mist,.18);
+      put(x,y,c);
+    }
+  }
+  // Worn path leads toward the tower, becoming narrower with distance.
+  for(let y=160;y<222;y++) {
+    const d=(y-160)/62, cx=384+d*62+Math.sin(d*5)*8;
+    for(let x=cx-1-d*5;x<cx+1+d*5;x++) put(x,y,mix(pal.mist,pal.bankTop,.61));
+  }
+  // Tapered masonry tower, shaded on the seaward face, with one faded band.
+  for(let y=96;y<163;y++) {
+    const half=7+(y-96)*.06;
+    for(let x=Math.ceil(386-half);x<=386+half;x++) {
+      const shade=clamp((x-379)/19,0,1);
+      let c=mix(mix(pal.mist,pal.light,.65*(1-pal.starAmt)),pal.ridge[1],.20+shade*.5);
+      if(y>127&&y<138)c=mix(pal.glow,pal.bark,.5+shade*.25);
+      if(y%9===0 && noise[y*W+x]>.45)c=mix(c,pal.bark,.13);
+      put(x,y,c);
+    }
+  }
+  // Door, narrow windows, lantern room, cap and balcony rail.
+  for(let y=151;y<163;y++) for(let x=384;x<388;x++)put(x,y,pal.bark);
+  for(const y of [108,143])for(let dy=0;dy<4;dy++)for(let x=384;x<387;x++)put(x,y+dy,pal.bark);
+  for(let y=86;y<96;y++)for(let x=379;x<394;x++)
+    put(x,y,mix(pal.waterLight,pal.bark,.4));
+  for(let y=81;y<86;y++)line(put,386-(y-80)*2,y,386+(y-80)*2,y,pal.bark);
+  line(put,386,77,386,81,pal.bark);
+  for(const x of [379,386,393])line(put,x,86,x,95,pal.bark);
+  line(put,375,96,398,96,pal.bark,2);
+  line(put,375,92,398,92,pal.bark);
+  for(const x of [375,397])line(put,x,92,x,97,pal.bark);
+  // Low coastal plants leave the horizon open. Tufts bend a pixel in the wind.
+  const R=rng(304);
+  for(let i=0;i<170;i++) {
+    const x=250+R()*230,y=coastEdge(x)+Math.max(0,310-x)*.42+R()*5;
+    if(Math.abs(x-386)<14)continue;
+    const h=2+R()*5;
+    line(put,x,y,x+Math.sin(wind+i)*1.1,y-h,mix(pal.leaf,pal.leafLit,R()*.55));
+  }
+  // Near rocks balance the lighthouse without another wall of trees.
+  for(const rock of [{x:18,y:224,rx:46,ry:27},{x:67,y:227,rx:26,ry:15}]) {
+    for(let y=-rock.ry;y<1;y++)for(let x=-rock.rx;x<rock.rx;x++) {
+      if((x/rock.rx)**2+(y/rock.ry)**2>1+Math.sin(x*.3)*.08)continue;
+      const facet=clamp(.45+x/rock.rx*.2+y/rock.ry*.25,0,1);
+      put(rock.x+x,rock.y+y,mix(pal.ridge[1],pal.bark,facet));
+    }
+  }
+  for(let y=211;y<H;y++)for(let x=0;x<W;x++)put(x,y,pal.bank,(y-211)/14*.8);
+  return px;
+}
+function drawCoast(put,pal,t,body) {
+  for(let y=COAST_HORIZON;y<H;y++) {
+    const d=(y-COAST_HORIZON)/(H-COAST_HORIZON);
+    for(let x=0;x<W;x++) {
+      const swell=Math.sin(y*(1.5-d*.7)+Math.sin(x*.023)*1.8-t*.32*state.ripple);
+      let c=mix(pal.water,pal.ridge[2],d*.35);
+      if(BAYER[y&3][x&3]<.25)c=mix(c,pal.waterLight,.10);
+      if(swell>.83) c=mix(c,pal.waterLight,.12+d*.1);
+      const reflection=Math.exp(-1*((x-body.x)/(7+d*39))**2);
+      if(swell>.45 && y%2===0)c=mix(c,pal.light,reflection*(.55-d*.22));
+      const patch=noise[(y>>2)*W+(x>>3)];
+      if(swell>.92 && patch>.65)c=mix(c,pal.waterLight,.13);
+      put(x,y,c);
+    }
+  }
+  line(put,0,COAST_HORIZON,W,COAST_HORIZON,mix(pal.waterLight,pal.mist,.5));
+  // Distant low islands with softened silhouettes and coastal haze.
+  for(const island of [{x:59,w:67,h:12},{x:186,w:33,h:6},{x:449,w:68,h:17}]) {
+    for(let x=-island.w;x<island.w;x++) {
+      const h=Math.pow(Math.max(0,1-(x/island.w)**2),1.8)*island.h*(.75+Math.sin(x*.08)*.18);
+      for(let y=Math.ceil(COAST_HORIZON-h);y<COAST_HORIZON+2;y++)
+        put(island.x+x,y,mix(pal.ridge[0],pal.mist,.32));
+    }
+  }
+  // Short foam lines breathe at the foot of the cliff instead of sweeping
+  // over the whole ocean; open water retains long, quiet swells.
+  for(let i=0;i<42;i++) {
+    const x=240+i*4, y=190+Math.sin(x*.031)*10;
+    for(let dx=0;dx<3;dx++) put(x+dx,y+Math.sin(t*.35+i)*1.2,pal.waterLight,.14+.14*Math.sin(t*.5+i)**2);
+  }
+  const strength=coastalLightAmount(), reach=Math.cos(t*.11)*280;
+  if(strength>0)for(let step=8;step<Math.abs(reach);step++) {
+    const x=386+Math.sign(reach)*step, cy=90+step*.015*Math.sin(t*.11), spread=1+step*.038;
+    for(let dy=-spread;dy<=spread;dy++)
+      put(x,cy+dy,pal.light,strength*.19*(1-step/300)*(1-Math.abs(dy)/(spread+1)));
+  }
+}
+function drawCoastLamp(put,pal) {
+  const strength=coastalLightAmount();
+  if(!strength)return;
+  for(let y=87;y<92;y++)for(let x=381;x<392;x++)
+    put(x,y,pal.light,strength*(x===386?.9:.55));
+  put(386,89,pal.light,strength);
+}
+
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 const frame=ctx.createImageData(W,H);
@@ -770,7 +887,9 @@ function render(now,eventNow=now) {
       if(edge<density*1.5) put(cx+x,c.y+y,shade,alpha);
     }
   }
-  if(selectedScene==='alpine') {
+  if(selectedScene==='coast') {
+    drawCoast(put,pal,t,body);
+  } else if(selectedScene==='alpine') {
     for(let i=0;i<px.length;i+=4) if(cache.terrain[i+3]) {
       px[i]=cache.terrain[i]; px[i+1]=cache.terrain[i+1]; px[i+2]=cache.terrain[i+2]; px[i+3]=255;
     }
@@ -829,7 +948,8 @@ function render(now,eventNow=now) {
     for(let c=0;c<3;c++) px[i+c]=px[i+c]*(1-alpha)+cache.foreground[i+c]*alpha;
     px[i+3]=255;
   }
-  drawFireflies(put,now);
+  if(selectedScene==='coast') drawCoastLamp(put,pal);
+  else drawFireflies(put,now);
   for(let y=0;y<H;y++) for(let x=0;x<W;x++) {
     const edge=Math.hypot((x-W/2)/(W*.6),(y-H/2)/(H*.75));
     if(edge>.75) put(x,y,pal.bank,Math.min(.4,(edge-.75)*.6));
@@ -1170,7 +1290,7 @@ const $ = id => document.getElementById(id);
 $('bRun').onclick = e => { state.running = !state.running; e.target.classList.toggle('on', state.running); };
 $('bDone').onclick = () => { state.running = false; $('bRun').classList.remove('on'); spawnBirds(performance.now()); };
 $('bBirds').onclick = () => spawnBirds(performance.now());
-$('bRings').disabled=selectedScene==='alpine';
+$('bRings').disabled=selectedScene!=='lakeside';
 $('bRings').onclick = () => spawnLakeRings(frozen!=null ? frozen : performance.now());
 $('bReset').onclick = () => { startReset(); $('sUse').value = 0; $('useOut').textContent = '0%'; };
 const canPop = 'documentPictureInPicture' in window;

@@ -248,12 +248,17 @@ controls, including **pop out ⧉** on supported browsers. Opening
 `viewer/scene.html` directly uses sample data instead of live data.
 
 The top-right gear opens **Settings** in both the browser scene and floating
-window. **Scene** switches between **Lakeside** and **Alpine Valley**, remembered
+window. **Scene** switches between **Lakeside**, **Alpine Valley**, and
+**Coastal Lighthouse**, remembered
 in this browser. Alpine Valley has layered peaks, snow that changes with the
-light, pine forests, drifting mist, and a winding river. Both scenes share the
+light, pine forests, drifting mist, and a winding river. Lakeside and Alpine Valley share the
 same usage-driven sun/moon cycle, birds, dusk fireflies, and turn stats. River
 shimmer and pine movement respond to working/idle state; clouds and mist drift
-slowly. Lake rings belong to Lakeside only.
+slowly. Lake rings belong to Lakeside only. Coastal Lighthouse has an open sea,
+distant islands, a rocky headland, wind-swept grass, and a shaded lighthouse.
+Ocean swells and reflections respond to activity; the lantern and a slow
+sweeping beam appear at dusk and remain through the night. Coastal scenes
+use the same birds and usage cycle, without lake rings or fireflies.
 
 **Music** lists tracks by category, with shuffle options and **Off**.
 Selections save automatically to Claude's user plugin settings, sharing the

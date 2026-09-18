@@ -91,13 +91,27 @@ assert.equal(element('stripToggle').checked,true);
   }
   const alpineBefore=Buffer.from(pixels);run('render(19000)');
   assert(pixels.some((v,i)=>v!==alpineBefore[i]),'Alpine animation should advance');
+  element('sceneSelect').value='coast';element('sceneSelect').onchange();
+  assert.equal(preferences.get('wr-scene'),'coast');
+  for(const used of [.18,.5,.88,1]) {
+    run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
+    assert(pixels.every((v,i)=>i%4!==3 || v===255));
+    assert.equal(run('coastalLightAmount()>0'),used>.72);
+    if(process.env.WR_SCENE_DUMP) {
+      const rgb=Buffer.alloc(480*225*3);
+      for(let i=0;i<480*225;i++)for(let c=0;c<3;c++)rgb[i*3+c]=pixels[i*4+c];
+      fs.writeFileSync(`/tmp/wr-coast-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
+    }
+  }
+  const coastBefore=Buffer.from(pixels);run('render(19000)');
+  assert(pixels.some((v,i)=>v!==coastBefore[i]),'Coastal animation should advance');
   element('sceneSelect').value='lakeside';element('sceneSelect').onchange();
   assert.equal(preferences.get('wr-scene'),'lakeside');
   pip.close();assert(!moved);run('paintHud();setStrip(true)');
   failSave=false;selectedTrack='none';await run('loadMusic()');assert.equal(element('musicSelect').value,'none');
-  preferences.set('wr-scene','alpine');
+  preferences.set('wr-scene','coast');
   const reopened=vm.createContext({...context});vm.runInContext(source,reopened);
-  assert.equal(vm.runInContext('selectedScene',reopened),'alpine');
-  assert.equal(element('sceneSelect').value,'alpine');
-  console.log('Viewer passed: scene switching/persistence and Alpine lighting/animation, PiP adoption/return, HUD and history updates, settings load/save/error and keyboard handling, strip toggle, local moon/reset clock, four rendered moods.');
+  assert.equal(vm.runInContext('selectedScene',reopened),'coast');
+  assert.equal(element('sceneSelect').value,'coast');
+  console.log('Viewer passed: scene switching/persistence and Alpine/coastal lighting/animation, PiP adoption/return, HUD and history updates, settings load/save/error and keyboard handling, strip toggle, local moon/reset clock, four rendered moods.');
 })().catch(e=>{console.error(e);process.exitCode=1});

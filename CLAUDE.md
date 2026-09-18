@@ -95,10 +95,12 @@ behaviour and options.
 - `/settings` requires the viewer's custom header and a loopback Host with the
   server's port; reject foreign origins and do not enable CORS. Never expose
   arbitrary settings edits or shell commands through this endpoint.
-- Scene selection (`wr-scene` in localStorage) is browser-local. Both scenes
+- Scene selection (`wr-scene` in localStorage) is browser-local. All scenes
   share usage, reset timing, HUD, and history. Alpine terrain overlays the sky
   after clouds/stars; foreground pines overlay birds. Cache keys include scene
-  identity. Keep lake rings out of the river and verify all four lighting moods.
+  identity. Coast uses its own water, cliff/tower foreground, and dusk/night
+  beacon; no lake rings or fireflies. Keep lake rings out of the river and
+  verify all four lighting moods for every scene.
 - The gear and its settings panel live inside the adopted frame. The turn-stats
   checkbox keeps the `wr-strip-2` browser preference. File demos disable music
   changes. Keyboard shortcuts must not fire inside form controls.
