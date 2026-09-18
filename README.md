@@ -249,7 +249,7 @@ controls, including **pop out ⧉** on supported browsers. Opening
 
 The top-right gear opens **Settings** in both the browser scene and floating
 window. **Scene** switches between **Lakeside**, **Alpine Valley**, and
-**Coastal Lighthouse**, remembered
+**Coastal Lighthouse**, and **Desert Canyon**, remembered
 in this browser. Alpine Valley has layered peaks, snow that changes with the
 light, pine forests, drifting mist, and a winding river. Lakeside and Alpine Valley share the
 same usage-driven sun/moon cycle, birds, dusk fireflies, and turn stats. River
@@ -258,7 +258,12 @@ slowly. Lake rings belong to Lakeside only. Coastal Lighthouse has an open sea,
 distant islands, a rocky headland, wind-swept grass, and a shaded lighthouse.
 Ocean swells and reflections respond to activity; the lantern and a slow
 sweeping beam appear at dusk and remain through the night. Coastal scenes
-use the same birds and usage cycle, without lake rings or fireflies.
+use the same birds and usage cycle, without lake rings or fireflies. Desert Canyon
+looks down from a rocky overlook across overlapping sandstone terraces and a
+pale winding wash, with a foreground yucca and clustered dry scrub. Warm rock
+colors cool to violet at night, the sun moves across the canyon sky, daytime heat shimmer
+softens the distant basin, and occasional dust passes across the canyon floor.
+It shares the usage cycle and stars, without water effects or fireflies.
 
 **Music** lists tracks by category, with shuffle options and **Off**.
 Selections save automatically to Claude's user plugin settings, sharing the

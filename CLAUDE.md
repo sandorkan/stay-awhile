@@ -100,7 +100,9 @@ behaviour and options.
   after clouds/stars; foreground pines overlay birds. Cache keys include scene
   identity. Coast uses its own water, cliff/tower foreground, and dusk/night
   beacon; no lake rings or fireflies. Keep lake rings out of the river and
-  verify all four lighting moods for every scene.
+  verify all four lighting moods for every scene. Desert has a separate
+  sandstone palette, cached terraced cliffs, a rocky yucca overlook and subtle heat/dust;
+  its effects use the shared reduced-motion clock.
 - The gear and its settings panel live inside the adopted frame. The turn-stats
   checkbox keeps the `wr-strip-2` browser preference. File demos disable music
   changes. Keyboard shortcuts must not fire inside form controls.

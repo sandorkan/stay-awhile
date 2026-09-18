@@ -113,7 +113,7 @@
     <div class="settings-heading"><h2 id="settingsTitle">Settings</h2>
       <button type="button" id="settingsClose" aria-label="Close settings">×</button></div>
     <label for="sceneSelect">Scene</label>
-    <select id="sceneSelect"><option value="lakeside">Lakeside</option><option value="alpine">Alpine Valley</option><option value="coast">Coastal Lighthouse</option></select>
+    <select id="sceneSelect"><option value="lakeside">Lakeside</option><option value="alpine">Alpine Valley</option><option value="coast">Coastal Lighthouse</option><option value="desert">Desert Canyon</option></select>
     <p>Remembered in this browser.</p>
     <label for="musicSelect">Music</label>
     <select id="musicSelect" aria-describedby="musicHint settingsFeedback" disabled></select>
@@ -148,10 +148,10 @@ const settingsClose=document.getElementById('settingsClose');
 const musicSelect=document.getElementById('musicSelect');
 const sceneSelect=document.getElementById('sceneSelect');
 let selectedScene='lakeside';
-try { const saved=localStorage.getItem('wr-scene'); if(['alpine','coast'].includes(saved)) selectedScene=saved; } catch(e) {}
+try { const saved=localStorage.getItem('wr-scene'); if(['alpine','coast','desert'].includes(saved)) selectedScene=saved; } catch(e) {}
 sceneSelect.value=selectedScene;
 sceneSelect.onchange=()=>{
-  selectedScene=['alpine','coast'].includes(sceneSelect.value)?sceneSelect.value:'lakeside';
+  selectedScene=['alpine','coast','desert'].includes(sceneSelect.value)?sceneSelect.value:'lakeside';
   cache.key='';
   document.getElementById('bRings').disabled=selectedScene!=='lakeside';
   try {localStorage.setItem('wr-scene',selectedScene);} catch(e) {}
@@ -193,6 +193,13 @@ const MOODS = {
   },
 };
 // usage burns the day down: full window = dawn, empty = dusk, spent = night
+// Sandstone keeps its own warm daylight and cool violet night colors.
+const DESERT_MOODS={
+  dawn:{...MOODS.dawn,sky:['#66506c','#895d70','#b57776','#d99578','#e9aa78','#f5bd7d','#ffd58c'],glow:'#ffa052',ridge:['#d49a65','#b15b35','#65322e'],mist:'#dfaa7c',leaf:'#403d2b',leafLit:'#b49558',bark:'#382426',bank:'#302027',bankTop:'#a45d35'},
+  day:{...MOODS.day,ridge:['#ddb17c','#c27a43','#7b402a'],mist:'#e4bd91',leaf:'#455749',leafLit:'#9a9d69',bark:'#503b36',bank:'#49312d',bankTop:'#b58258'},
+  dusk:{...MOODS.dusk,sky:['#211e39','#45304b','#774153','#ab5754','#d57654','#ee9c62','#ffc27b'],ridge:['#d58b55','#ae4e2e','#5b2933'],mist:'#d69875',leaf:'#343437',leafLit:'#8a6b55',bark:'#2b2032',bank:'#281a2d',bankTop:'#754336'},
+  night:{...MOODS.night,ridge:['#41415b','#2e2d48','#181b32'],mist:'#5f5e78',leaf:'#182537',leafLit:'#374152',bark:'#101522',bank:'#0d1120',bankTop:'#29253c'},
+};
 const RAMP = [[0, 'dawn'], [.20, 'dawn'], [.5, 'day'], [.85, 'dusk'], [1, 'dusk']];
 
 const hex = h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
@@ -212,7 +219,7 @@ function blendPal(A, B, t) {
 
 function paletteFor(used, nightAmt) {
   const day = dayPalette(used);
-  return nightAmt > .001 ? blendPal(day, bake(MOODS.night), nightAmt) : day;
+  return nightAmt > .001 ? blendPal(day, bake((selectedScene==='desert'?DESERT_MOODS:MOODS).night), nightAmt) : day;
 }
 
 function dayPalette(used) {
@@ -220,7 +227,8 @@ function dayPalette(used) {
   while (i < RAMP.length - 2 && used > RAMP[i+1][0]) i++;
   const [u0, m0] = RAMP[i], [u1, m1] = RAMP[i+1];
   const t = clamp((used - u0) / (u1 - u0 || 1), 0, 1);
-  return bake(MOODS[m0], MOODS[m1], t);
+  const moods=selectedScene==='desert'?DESERT_MOODS:MOODS;
+  return bake(moods[m0], moods[m1], t);
 }
 function bake(A, B, t = 0) {
   const c = (k) => B ? mix(hex(A[k]), hex(B[k]), t) : hex(A[k]);
@@ -540,6 +548,7 @@ function buildStatic(pal,used,night) {
 
 // Foreground is cached separately so tiny leaf movements don't rebuild the sky.
 function buildForeground(pal,windPhase) {
+  if(selectedScene==='desert') return buildDesertForeground(pal,windPhase);
   if(selectedScene==='coast') return buildCoastForeground(pal,windPhase);
   const px=new Uint8ClampedArray(W*H*4), put=painter(px);
   for(let x=0;x<W;x++) {
@@ -846,6 +855,204 @@ function drawCoastLamp(put,pal) {
   put(386,89,pal.light,strength);
 }
 
+// ---------------------------------------------------------------- desert canyon
+function desertChannel(y) {
+  const d=clamp((y-105)/120,0,1);
+  return {x:252+Math.sin(d*9-1)*29*d, width:3+d*18};
+}
+// Each terrace has a cap, a fractured face and a spreading rubble foot.
+// Shapes overlap in depth order; no repeating horizontal stripe field.
+function desertFoot(dx,w,h,seed) {
+  return h-1-(.5+.5*Math.sin(dx*.083+seed)+.22*Math.sin(dx*.21-seed))*Math.min(7,h*.10);
+}
+function desertMesa(put,pal,m,used) {
+  const {x,w,y,h,seed,fog}=m, R=rng(seed);
+  // Uneven terraces break the skyline into broad shelves and fallen corners.
+  const shelves=Array.from({length:7},(_,i)=>({
+    at:i/6, drop:(i===0||i===6?.10:.015)+R()*.17
+  }));
+  const capAt=u=>{
+    const v=clamp(u,0,.999)*6, i=Math.floor(v), f=v-i;
+    // A short sloping transition joins long, imperfectly level ledges.
+    const blend=clamp((f-.68)/.32,0,1);
+    return lerp(shelves[i].drop,shelves[i+1].drop,blend)*h;
+  };
+  for(let dy=0;dy<h;dy++) {
+    const f=dy/h, talus=Math.max(0,(f-.42)/.58);
+    const spread=talus*talus*h*.86;
+    for(let dx=-spread;dx<w+spread;dx++) {
+      const xx=Math.round(x+dx), yy=Math.round(y+dy);
+      if(xx<0||xx>=W||yy<0||yy>=H)continue;
+      const foot=desertFoot(dx,w,h,seed);
+      if(dy>foot)continue;
+      const grain=noise[yy*W+xx], ledge=capAt(dx/w)+Math.floor(grain*1.6);
+      if(dy<ledge)continue;
+      const bevel=Math.max(0,1-dy/(h*.46))*Math.min(w*.15,9);
+      if(dx<bevel || dx>w-bevel*1.8) {
+        if(talus<=0)continue;
+      }
+      const slope=dx<0?-dx:dx>w?dx-w:0;
+      if(slope>spread*(.8+grain*.2))continue;
+      const folded=dx-dy*.10+Math.sin(dy*.12+seed)*1.4;
+      const cellX=((Math.floor(folded/3)+seed*13+1024)%W),cellY=(Math.floor(dy/6)+seed)%H;
+      const blocks=noise[cellY*W+cellX];
+      const joint=noise[((seed*7)%H)*W+cellX];
+      const fracture=Math.sin(folded*.09+seed)*.45+(blocks-.5)*1.1;
+      const face=clamp(.42+fracture*.22+(dx/w-.5)*(.5-used)*1.15,0,1);
+      let c=mix(pal.ridge[1],pal.ridge[2],face*.90);
+      c=mix(c,pal.glow,(1-face)*.17*(1-pal.starAmt));
+      if(joint>.83 && blocks>.42)c=mix(c,pal.bark,.32);
+      if(blocks<.3 && joint<.6)c=mix(c,pal.glow,.18*(1-pal.starAmt));
+      // Narrow broken seams and scattered angular scree, rather than bands.
+      if(Math.sin(dy*.22+Math.sin(dx*.07)*.7)>.96 && grain>.3)c=mix(c,pal.bark,.18);
+      if(talus>.2 && grain>.55)c=mix(c,pal.ridge[0],.20);
+      if(dy-ledge<2 || ((used<.5?dx<bevel+2:dx>w-bevel*1.8-2) && dy<h*.6))c=mix(c,pal.light,.27*(1-pal.starAmt*.85));
+      if(BAYER[yy&3][xx&3]<grain*.28)c=mix(c,pal.ridge[0],.16);
+      c=mix(c,pal.mist,fog);
+      // Soft broken contact at the rubble foot, not a ruler-straight cutoff.
+      put(xx,yy,c,clamp((foot-dy)/3.5,0,1));
+    }
+  }
+  for(let i=0;i<Math.min(70,w*.6);i++) {
+    const dx=-h*.3+R()*(w+h*.6), xx=x+dx;
+    const yy=y+desertFoot(dx,w,h,seed)+R()*4;
+    const size=R()>.75?2:1;
+    const col=mix(mix(pal.ridge[1],pal.ridge[2],R()*.5),pal.mist,fog);
+    line(put,xx,yy,xx+size,yy,col);
+  }
+}
+function buildDesertTerrain(pal,used) {
+  const px=new Uint8ClampedArray(W*H*4), put=painter(px);
+  // Pale wash widens toward the overlook, disappearing behind terraces.
+  for(let y=96;y<H;y++)for(let x=0;x<W;x++) {
+    const d=(y-96)/129, n=noise[y*W+x], wash=desertChannel(y);
+    let c=mix(pal.ridge[0],pal.bankTop,.2+d*.28);
+    const edge=Math.abs(x-wash.x)-(wash.width+Math.sin(y*.31)*2+Math.sin(y*.73)*d);
+    if(edge<0) {
+      const sand=.10+.04*Math.sin(x*.09+y*.13);
+      c=mix(pal.ridge[0],pal.light,sand*(1-pal.starAmt));
+      if(edge>-2)c=mix(c,pal.ridge[1],.12*clamp(Math.sin(y*.21)+.2,0,1));
+      if(Math.sin(y*.32+x*.06)>.8)c=mix(c,pal.bankTop,.12);
+    } else if(edge<2 && x>wash.x) c=mix(c,pal.ridge[2],.14*clamp(Math.sin(y*.21)+.2,0,1));
+    const patch=noise[(Math.floor(y/5)*W)+Math.floor(x/8)];
+    if(patch>.73 && n>.80)c=mix(c,pal.ridge[2],.18);
+    if(BAYER[y&3][x&3]<.10)c=mix(c,pal.mist,.06);
+    put(x,y,c);
+  }
+  const mesas=[
+    {x:-22,w:189,y:86,h:45,fog:.60,seed:3},
+    {x:168,w:101,y:97,h:31,fog:.64,seed:7},
+    {x:292,w:211,y:80,h:57,fog:.55,seed:12},
+    {x:39,w:103,y:112,h:46,fog:.30,seed:17},
+    {x:280,w:76,y:122,h:40,fog:.27,seed:22},
+    {x:164,w:7,y:112,h:25,fog:.34,seed:35},
+    {x:179,w:10,y:103,h:37,fog:.34,seed:36},
+    {x:-33,w:119,y:67,h:132,fog:.025,seed:41},
+    {x:78,w:86,y:147,h:47,fog:.075,seed:46},
+    {x:430,w:83,y:65,h:130,fog:.025,seed:50},
+    {x:339,w:118,y:133,h:67,fog:.045,seed:52},
+    {x:302,w:67,y:180,h:37,fog:.025,seed:54},
+  ];
+  // Low intermediate shelves connect the main cliffs without filling the wash.
+  mesas.splice(7,0,{x:214,w:25,y:152,h:14,fog:.17,seed:61},
+    {x:262,w:24,y:174,h:12,fog:.10,seed:64});
+  // Ground shadows are painted before the rock silhouettes, so no shadow can
+  // accidentally cross a nearer cliff face. Length grows with a low sun.
+  const sun=arcXY(used), daylight=1-pal.starAmt;
+  for(const m of mesas) {
+    const length=m.h*(.10+Math.abs(used-.5)*.5),direction=m.x+m.w/2>sun.x?1:-1;
+    for(let dy=-3;dy<7;dy++)for(let dx=-m.h*.25;dx<m.w+m.h*.25+length;dx++) {
+      const xx=m.x+dx+direction*length*.4, yy=m.y+m.h-3+dy;
+      const across=(dx-m.w/2)/(m.w*.7+length), depth=dy/7;
+      const fade=clamp(1-across*across-depth*depth,0,1);
+      if(fade>0)put(xx,yy,pal.ridge[2],fade*.22*daylight*(1-m.fog));
+    }
+  }
+  for(const m of mesas)desertMesa(put,pal,m,used);
+  const R=rng(721);
+  for(let i=0;i<65;i++) {
+    const x=R()*W,y=176+R()*48, ch=desertChannel(y);
+    if(Math.abs(x-ch.x)<ch.width+4)continue;
+    const c=mix(pal.bark,pal.bankTop,.5);
+    if(i%5===0)foliage(put,x,y,2,1.5,pal,i);
+    else line(put,x,y,x+1+R()*2,y,c);
+  }
+  return px;
+}
+function buildDesertForeground(pal,wind) {
+  const px=new Uint8ClampedArray(W*H*4),put=painter(px);
+  // Diagonal overlook establishes height above the canyon floor.
+  const rim=x=>178+x*.10+Math.sin(x*.026)*4+Math.sin(x*.13)*1.2+Math.sin(x*.31)*.6;
+  for(let x=0;x<W;x++)for(let y=Math.ceil(rim(x));y<H;y++) {
+    let c=mix(pal.bankTop,pal.bank,clamp((y-rim(x))/48,0,1));
+    if(noise[y*W+x]>.6)c=mix(c,pal.ridge[1],.2);
+    const depth=y-rim(x), slab=Math.sin(x*.047-depth*.14)+Math.sin(x*.10+depth*.08)*.4;
+    if(depth<15 && slab>.7)c=mix(c,pal.ridge[0],.16);
+    if(y<rim(x)+2)c=mix(c,pal.glow,.3*(1-pal.starAmt));
+    put(x,y,c);
+  }
+  // A few short, branching cracks follow the overlook's exposed surfaces.
+  for(const [x,length,lean] of [[76,13,6],[147,11,-5],[244,12,8],[365,10,-4]]) {
+    const y=rim(x)+2;
+    for(let k=0;k<length;k++) {
+      const xx=x+lean*k/length+Math.sin(k*.65)*.6;
+      put(xx,y+k*.55,pal.bark,.42);
+      if(k<length*.6)put(xx+1,y+k*.55,pal.ridge[0],.13);
+    }
+    line(put,x+lean*.5,y+length*.28,x+lean*.5-3,y+length*.28+3,mix(pal.bankTop,pal.bark,.45));
+  }
+  // Angular boulders, split by deep cracks, make the near edge substantial.
+  for(const m of [{x:-10,w:52,y:193,h:41},{x:51,w:39,y:202,h:30},{x:105,w:51,y:213,h:24},{x:198,w:40,y:216,h:28}])
+    desertMesa(put,pal,{...m,seed:m.x+91,fog:0},state.shown);
+  const R=rng(419);
+  const clusters=[28,112,203,323,451];
+  for(let i=0;i<24;i++) {
+    const group=clusters[i%clusters.length];
+    const x=group+(R()-.5)*26,y=rim(x)+R()*11;
+    const dry=R(), size=.65+R()*.85;
+    const plant={...pal,leaf:mix(pal.leaf,pal.bankTop,dry*.40),
+      leafLit:mix(pal.leafLit,pal.ridge[1],dry*.5)};
+    foliage(put,x,y,(3+R()*5)*size,(2+R()*3)*size,plant,i*17);
+    const blades=3+(R()*5|0);
+    for(let blade=0;blade<blades;blade++) {
+      const h=(2+R()*7)*size,lean=(R()-.5)*11*size;
+      const tip=x+lean+Math.sin(wind+i)*.35;
+      line(put,x,y,tip,y-h,mix(plant.leaf,plant.leafLit,.48));
+      if(R()>.5)put(tip,y-h,plant.leafLit);
+    }
+  }
+  // A yucca silhouette anchors the left edge, with lit leaf tips and seed stalks.
+  for(let blade=0;blade<23;blade++) {
+    const angle=-Math.PI+blade/22*Math.PI,h=10+R()*15;
+    const dx=Math.cos(angle)*h,dy=Math.sin(angle)*h;
+    line(put,46,185,46+dx,185+dy,pal.leaf,2);
+    line(put,46+dx*.7,185+dy*.7,46+dx,185+dy,pal.leafLit);
+  }
+  for(const [dx,h] of [[-5,32],[2,38],[9,29]]) {
+    line(put,46+dx*.3,185,46+dx,185-h,pal.leafLit);
+    for(let k=0;k<5;k++)put(46+dx+(k%2?1:-1),185-h+k*2,mix(pal.light,pal.ridge[0],.4));
+  }
+  for(let y=215;y<H;y++)for(let x=0;x<W;x++)put(x,y,pal.bank,(y-215)/10*.6);
+  return px;
+}
+function drawDesertAtmosphere(put,pal,t) {
+  const day=1-clamp(state.nightAmt,0,1);
+  // Heat only distorts the far basin by a fraction of a pixel. Freeze with
+  // reduced motion through the shared render clock, and calm it when idle.
+  const heat=clamp(1-Math.abs(state.shown-.52)*3,0,1)*day;
+  if(heat>0)for(let y=127;y<146;y++)for(let x=122;x<348;x++) {
+    const density=Math.sin(x*.025+t*.19)*Math.sin(y*1.4+t*.32);
+    if(density>.6)put(x,y,pal.mist,heat*.045*state.ripple);
+  }
+  // Infrequent wisps skim the canyon floor and disappear between gusts.
+  const cycle=t%43, envelope=Math.sin(clamp((cycle-24)/13,0,1)*Math.PI);
+  if(envelope>.001)for(let i=0;i<36;i++) {
+    const x=155+cycle*3+i*2,y=181+Math.sin(i*.12+cycle*.09)*3;
+    put(x,y,pal.mist,envelope*.16*day*(.3+.7*state.wind));
+    if(i%3===0)put(x+1,y-1,pal.mist,envelope*.08*day);
+  }
+}
+
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 const frame=ctx.createImageData(W,H);
@@ -861,7 +1068,7 @@ function render(now,eventNow=now) {
   if(key!==cache.key) {
     cache.pal=paletteFor(used,state.nightAmt);
     const s=buildStatic(cache.pal,night?state.moonF:used,night);
-    cache.terrain=selectedScene==='alpine'?buildAlpineTerrain(cache.pal,used,night):null;
+    cache.terrain=selectedScene==='alpine'?buildAlpineTerrain(cache.pal,used,night):selectedScene==='desert'?buildDesertTerrain(cache.pal,used):null;
     cache.base=s.px; cache.body=s.body; cache.key=key; cache.foreground=null;
   }
   const pal=cache.pal, body=cache.body, px=frame.data;
@@ -889,12 +1096,12 @@ function render(now,eventNow=now) {
   }
   if(selectedScene==='coast') {
     drawCoast(put,pal,t,body);
-  } else if(selectedScene==='alpine') {
+  } else if(selectedScene==='alpine'||selectedScene==='desert') {
     for(let i=0;i<px.length;i+=4) if(cache.terrain[i+3]) {
       px[i]=cache.terrain[i]; px[i+1]=cache.terrain[i+1]; px[i+2]=cache.terrain[i+2]; px[i+3]=255;
     }
-    drawAlpineMist(put,pal,t);
-    drawAlpineWater(put,pal,t,body);
+    if(selectedScene==='desert') drawDesertAtmosphere(put,pal,t);
+    else { drawAlpineMist(put,pal,t); drawAlpineWater(put,pal,t,body); }
   } else {
   for(let y=SHORE;y<BANK+8;y++) {
     const depth=(y-SHORE)/(BANK-SHORE);
@@ -949,7 +1156,7 @@ function render(now,eventNow=now) {
     px[i+3]=255;
   }
   if(selectedScene==='coast') drawCoastLamp(put,pal);
-  else drawFireflies(put,now);
+  else if(selectedScene!=='desert') drawFireflies(put,now);
   for(let y=0;y<H;y++) for(let x=0;x<W;x++) {
     const edge=Math.hypot((x-W/2)/(W*.6),(y-H/2)/(H*.75));
     if(edge>.75) put(x,y,pal.bank,Math.min(.4,(edge-.75)*.6));
