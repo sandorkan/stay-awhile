@@ -3,7 +3,7 @@
 const fs=require('fs'), vm=require('vm'), assert=require('assert');
 const source=fs.readFileSync(require('path').join(__dirname,'../viewer/scene.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 let moved=false, now=1000000, pixels;
-const elements=new Map(), moving=new Set(['cv','hudL','hudR','stripToggle','dayCount','turnBars','turnTooltip','settingsToggle','settingsPanel','settingsClose','musicSelect','settingsFeedback']);
+const elements=new Map(), moving=new Set(['cv','hudL','hudR','stripToggle','dayCount','turnBars','turnTooltip','settingsToggle','settingsPanel','settingsClose','musicSelect','settingsFeedback','sceneSelect']);
 let parentDocument, pipDocument;
 function element(id) {
   if(!elements.has(id)) elements.set(id,{
@@ -74,7 +74,30 @@ assert.equal(element('stripToggle').checked,true);
     run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
     assert.equal(pixels.length,480*225*4);assert(pixels.some(v=>v>0));
   }
+  const lakePixels=Buffer.from(pixels);
+  assert.equal(parentDocument.getElementById('sceneSelect'),null);
+  element('sceneSelect').value='alpine';element('sceneSelect').onchange();
+  assert.equal(preferences.get('wr-scene'),'alpine');
+  for(const used of [.18,.5,.88,1]) {
+    run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
+    assert(pixels.some((v,i)=>v!==lakePixels[i]));
+    assert(pixels.every((v,i)=>i%4!==3 || v===255));
+    if(process.env.WR_SCENE_DUMP) {
+      // PPM exports come straight from the renderer, without browser automation.
+      const rgb=Buffer.alloc(480*225*3);
+      for(let i=0;i<480*225;i++)for(let c=0;c<3;c++)rgb[i*3+c]=pixels[i*4+c];
+      fs.writeFileSync(`/tmp/wr-alpine-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
+    }
+  }
+  const alpineBefore=Buffer.from(pixels);run('render(19000)');
+  assert(pixels.some((v,i)=>v!==alpineBefore[i]),'Alpine animation should advance');
+  element('sceneSelect').value='lakeside';element('sceneSelect').onchange();
+  assert.equal(preferences.get('wr-scene'),'lakeside');
   pip.close();assert(!moved);run('paintHud();setStrip(true)');
   failSave=false;selectedTrack='none';await run('loadMusic()');assert.equal(element('musicSelect').value,'none');
-  console.log('Viewer passed: PiP adoption/return, HUD and history updates, settings load/save/error and keyboard handling, strip toggle, local moon/reset clock, four rendered moods.');
+  preferences.set('wr-scene','alpine');
+  const reopened=vm.createContext({...context});vm.runInContext(source,reopened);
+  assert.equal(vm.runInContext('selectedScene',reopened),'alpine');
+  assert.equal(element('sceneSelect').value,'alpine');
+  console.log('Viewer passed: scene switching/persistence and Alpine lighting/animation, PiP adoption/return, HUD and history updates, settings load/save/error and keyboard handling, strip toggle, local moon/reset clock, four rendered moods.');
 })().catch(e=>{console.error(e);process.exitCode=1});

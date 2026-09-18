@@ -112,6 +112,9 @@
   <section class="settings-panel" id="settingsPanel" aria-labelledby="settingsTitle" hidden>
     <div class="settings-heading"><h2 id="settingsTitle">Settings</h2>
       <button type="button" id="settingsClose" aria-label="Close settings">×</button></div>
+    <label for="sceneSelect">Scene</label>
+    <select id="sceneSelect"><option value="lakeside">Lakeside</option><option value="alpine">Alpine Valley</option></select>
+    <p>Remembered in this browser.</p>
     <label for="musicSelect">Music</label>
     <select id="musicSelect" aria-describedby="musicHint settingsFeedback" disabled></select>
     <p id="musicHint">Saved for future turns. Current music keeps playing.</p>
@@ -143,6 +146,16 @@ const settingsToggle=document.getElementById('settingsToggle');
 const settingsPanel=document.getElementById('settingsPanel');
 const settingsClose=document.getElementById('settingsClose');
 const musicSelect=document.getElementById('musicSelect');
+const sceneSelect=document.getElementById('sceneSelect');
+let selectedScene='lakeside';
+try { if(localStorage.getItem('wr-scene')==='alpine') selectedScene='alpine'; } catch(e) {}
+sceneSelect.value=selectedScene;
+sceneSelect.onchange=()=>{
+  selectedScene=sceneSelect.value==='alpine'?'alpine':'lakeside';
+  cache.key='';
+  document.getElementById('bRings').disabled=selectedScene==='alpine';
+  try {localStorage.setItem('wr-scene',selectedScene);} catch(e) {}
+};
 const settingsFeedback=document.getElementById('settingsFeedback');
 // ---------------------------------------------------------------- palettes
 const MOODS = {
@@ -497,6 +510,7 @@ function buildStatic(pal,used,night) {
     if(night && (x+6)**2+(y-2)**2<radius*radius) continue;
     put(body.x+x,body.y+y,pal.light);
   }
+  if(selectedScene==='alpine') return {px,body};
   // Five overlapping silhouettes, with increasingly crisp forested ridgelines.
   const ridges=[
     {base:112,amp:21,freq:.017,seed:1.2,col:mix(pal.ridge[0],pal.haze,.3)},
@@ -532,7 +546,11 @@ function buildForeground(pal,windPhase) {
     const top=213-edge*28+Math.sin(x*.08)*2;
     for(let y=Math.round(top);y<H;y++) put(x,y,mix(pal.bankTop,pal.bank,clamp((y-top)/12,0,1)));
   }
-  for(const tr of world.trees) {
+  if(selectedScene==='alpine') {
+    for(const [x,y,h,seed] of [[10,203,164,17],[41,206,122,23],[70,213,120,41],[108,218,75,62],[147,222,45,73],[466,210,126,91],[432,214,90,104],[405,220,55,142]])
+      alpinePine(put,x,y,h,pal,seed,windPhase);
+  }
+  for(const tr of selectedScene==='alpine'?[]:world.trees) {
     for(const path of tr.paths) treeLimb(put,path,pal);
     for(const crown of tr.crowns) {
       const sway=Math.sin(windPhase+tr.seed+crown.phase*.15)*.45;
@@ -578,6 +596,139 @@ function buildForeground(pal,windPhase) {
   return px;
 }
 
+// Alpine terrain is a separate layer: clouds and stars remain behind the peaks.
+function alpineRiver(y) {
+  const d=clamp((y-148)/66,0,1);
+  return {center:260+Math.sin(d*8-1)*34*d+Math.sin(y*.48)*d*1.5,
+    width:(2+d*d*43)*(1+Math.sin(y*.57)*.10+Math.sin(y*.21)*.13)};
+}
+function alpinePine(put,x,base,height,pal,seed,wind=0) {
+  const R=rng(seed), width=height*(.16+R()*.045);
+  const shadow=mix(pal.leaf,pal.bark,.45), lit=mix(pal.leaf,pal.leafLit,.55);
+  line(put,x,base,x,base-height,pal.bark,Math.max(1,height/45|0));
+  for(let k=3;k<height;k++) {
+    const f=k/height, tier=(k%(Math.max(3,height/12|0)))/(Math.max(3,height/12|0));
+    const span=width*f*(.5+tier*.5), sway=Math.sin(wind+seed)*wind*.6*(1-f);
+    for(let dx=-span;dx<=span;dx++) {
+      if(R()<.07) continue;
+      const color=dx<0 && tier>.55 && R()>.45?lit:dx>span*.2?shadow:pal.leaf;
+      put(x+dx+sway,base-height+k+Math.abs(dx)*.2,color);
+    }
+  }
+}
+function buildAlpineTerrain(pal,used,night) {
+  const px=new Uint8ClampedArray(W*H*4), put=painter(px);
+  const profiles=[
+    [[0,92],[42,66],[82,103],[126,95],[158,114],[185,91],[218,104],[258,78],[285,89],[328,60],[359,82],[388,76],[428,104],[480,83]],
+    [[0,86],[40,53],[59,63],[82,81],[110,75],[142,114],[197,135],[242,112],[272,74],[290,83],[320,64],[348,43],[367,65],[380,61],[410,89],[428,78],[456,102],[480,93]],
+    [[0,112],[35,98],[66,106],[102,132],[137,146],[195,162],[245,164],[290,151],[325,126],[352,105],[372,102],[393,117],[422,108],[480,88]],
+    [[0,150],[45,136],[86,150],[130,157],[180,172],[230,180],[278,177],[315,166],[361,156],[410,145],[480,133]],
+  ];
+  profiles.forEach((points,layer)=>{
+    const R=rng(802+layer), base=mix(pal.ridge[Math.min(layer,2)],pal.haze,layer===0?.32:.05);
+    for(let x=0;x<W;x++) {
+      let i=1;while(i<points.length-1 && points[i][0]<x)i++;
+      const [ax,ay]=points[i-1], [bx,by]=points[i];
+      const top=lerp(ay,by,(x-ax)/(bx-ax))+Math.sin(x*1.3+layer)*1.1;
+      for(let y=Math.ceil(top);y<H;y++) {
+        const depth=y-top, grain=BAYER[y&3][x&3], n=noise[y*W+x];
+        const fold=Math.sin(x*.075+depth*.10)+Math.sin(x*.033-depth*.07)*.5;
+        const shade=clamp(.20+fold*.12+depth*.003,0,.65);
+        let c=mix(base,pal.ridge[2],shade);
+        if(layer===1) {
+          // Snow clings to the high massif in broken chutes. Its sun-facing
+          // shoulder warms at dawn/dusk, while the opposite face stays blue.
+          // Blend whole mountain faces instead of switching summit models
+          // at one x coordinate (which produced a vertical seam).
+          const massif=Math.exp(-1*((x-350)/88)**2);
+          const diagonal=x+(y-43)*.72;
+          const face=Math.sin(diagonal*.045)+Math.sin((x-y*.48)*.079)*.35;
+          const facing=clamp(.48-face*.32,0,1);
+          c=mix(c,pal.bark,(1-facing)*.20);
+          c=mix(c,pal.mist,facing*.22);
+          const broken=Math.sin(diagonal*.16+Math.sin(y*.13)*1.4);
+          const snowReach=5+massif*(15+facing*16);
+          const snowAmount=clamp((snowReach-depth)/12,0,1)*massif;
+          const snow= y<112 && broken+snowAmount*2>1.05 && grain<snowAmount;
+          if(snow) c=mix(pal.mist,pal.light,night?.12:.18+facing*.42);
+          else if(broken>.5 && grain<.4) c=mix(c,pal.mist,.12);
+          if(depth<3 && !night) c=mix(c,pal.light,facing*massif*.27);
+        }
+        const fog=clamp(depth/65,0,1)*(layer<2?.38:.18);
+        if(grain<fog) c=mix(c,pal.mist,.4);
+        if(n>.9) c=mix(c,pal.mist,.05);
+        put(x,y,c);
+      }
+      if(layer>=2 && x%3===0) {
+        const h=2+R()*(layer===3?4:2);
+        // Connected triangular treetops, without exposed vertical trunks.
+        for(let dy=0;dy<h;dy++) for(let dx=-dy*.55;dx<=dy*.55;dx++)
+          put(x+dx,top-h+dy,base);
+      }
+    }
+  });
+  // Meadow terraces open into a winding river below the valley's forest.
+  for(let y=151;y<H;y++) for(let x=0;x<W;x++) {
+    const d=(y-151)/74, opening=12+d*170;
+    if(Math.abs(x-260)>opening)continue;
+    const terrace=Math.sin(x*.018+y*.14)+noise[y*W+x]*.3;
+    const c=mix(pal.leaf,pal.mist,terrace>.25?.27:.21);
+    put(x,y,c);
+  }
+  const R=rng(523), groves=[];
+  for(let i=0;i<400;i++) {
+    const y=155+R()*62,x=R()*W, river=alpineRiver(y);
+    if(Math.abs(x-river.center)<river.width+5)continue;
+    const d=(y-150)/70;
+    groves.push({x,y,d,seed:i});
+  }
+  groves.sort((a,b)=>a.y-b.y);
+  for(const g of groves) {
+    const forest={...pal,leaf:mix(pal.ridge[2],pal.leaf,.3+g.d*.4),
+      leafLit:mix(pal.ridge[1],pal.leafLit,.25),bark:pal.ridge[2]};
+    // Interlocking canopies read as wooded slopes. Only the nearest groves
+    // resolve into individual pines; distance compresses the crowns together.
+    foliage(put,g.x,g.y,7+g.d*10,3+g.d*5,forest,g.seed);
+    for(let k=0;k<5;k++) {
+      const x=g.x-6+k*3, h=3+g.d*5+Math.sin(k+g.seed)*2;
+      for(let dy=0;dy<h;dy++)for(let dx=-dy*.45;dx<=dy*.45;dx++)
+        put(x+dx,g.y-2-h+dy,forest.leaf);
+    }
+  }
+  return px;
+}
+function drawAlpineWater(put,pal,t,body) {
+  for(let y=150;y<216;y++) {
+    const river=alpineRiver(y),d=(y-150)/66;
+    for(let x=Math.ceil(river.center-river.width);x<river.center+river.width;x++) {
+      // Low gravel islands and uneven bank shelves interrupt the ribbon.
+      const island=((x-252)/10)**2+((y-190)/2.4)**2<1 ||
+        ((x-275)/5)**2+((y-167)/1.4)**2<1;
+      const bank=Math.abs(x-river.center)>river.width-1.5;
+      if(island) {put(x,y,mix(pal.bankTop,pal.mist,.22));continue;}
+      const grain=BAYER[y&3][x&3];
+      const wave=Math.sin(y*1.5+Math.sin(x*.15)*2+t*.22*state.ripple);
+      let c=mix(pal.water,pal.sky[pal.sky.length-1],.32);
+      if(grain<.3) c=mix(c,pal.waterLight,.25);
+      const glow=Math.exp(-1*((x-body.x)/(35+d*100))**2);
+      if(wave>.45) c=mix(c,pal.light,(.12+glow*.22)*(.7+.3*Math.sin(t*.5+y)));
+      if(y%3===0 && Math.sin(x*.18+y)>.2)c=mix(c,pal.waterLight,.22);
+      if(bank)c=mix(c,pal.ridge[2],.55);
+      put(x,y,c);
+    }
+  }
+}
+function drawAlpineMist(put,pal,t) {
+  for(let band=0;band<3;band++) {
+    const cy=123+band*15, drift=Math.sin(t*.025+band)*9;
+    for(let x=35;x<W-25;x++)for(let dy=-3;dy<4;dy++) {
+      const y=cy+dy+Math.sin((x+drift)*.021+band)*7;
+      const alpha=Math.max(0,1-Math.abs(dy)/4)*(.045+.045*Math.sin(x*.018+band)**2);
+      put(x,y,pal.mist,alpha);
+    }
+  }
+}
+
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 ctx.imageSmoothingEnabled=false;
 const frame=ctx.createImageData(W,H);
@@ -589,10 +740,11 @@ function render(now,eventNow=now) {
   state.shown += (state.used - state.shown) * .04;
   if (Math.abs(state.used - state.shown) < .0005) state.shown = state.used;
   const t=now/1000, used=clamp(state.shown,0,1), night=state.nightAmt>.5;
-  const key=[Math.round(used*200),Math.round(state.nightAmt*40),Math.round(state.moonF*200)].join('|');
+  const key=[selectedScene,Math.round(used*200),Math.round(state.nightAmt*40),Math.round(state.moonF*200)].join('|');
   if(key!==cache.key) {
     cache.pal=paletteFor(used,state.nightAmt);
     const s=buildStatic(cache.pal,night?state.moonF:used,night);
+    cache.terrain=selectedScene==='alpine'?buildAlpineTerrain(cache.pal,used,night):null;
     cache.base=s.px; cache.body=s.body; cache.key=key; cache.foreground=null;
   }
   const pal=cache.pal, body=cache.body, px=frame.data;
@@ -618,6 +770,13 @@ function render(now,eventNow=now) {
       if(edge<density*1.5) put(cx+x,c.y+y,shade,alpha);
     }
   }
+  if(selectedScene==='alpine') {
+    for(let i=0;i<px.length;i+=4) if(cache.terrain[i+3]) {
+      px[i]=cache.terrain[i]; px[i+1]=cache.terrain[i+1]; px[i+2]=cache.terrain[i+2]; px[i+3]=255;
+    }
+    drawAlpineMist(put,pal,t);
+    drawAlpineWater(put,pal,t,body);
+  } else {
   for(let y=SHORE;y<BANK+8;y++) {
     const depth=(y-SHORE)/(BANK-SHORE);
     const shift=Math.sin(y*.8+t*.5)*depth*2.4*state.ripple;
@@ -652,6 +811,7 @@ function render(now,eventNow=now) {
     }
   }
   drawLakeRings(put,pal,eventNow);
+  }
   // Birds cross the distant sky; foreground trees and plants occlude them.
   for(const b of state.birds) {
     if(!reducedMotion.matches) { b.x+=b.speed; b.y+=Math.sin(t*.7+b.phase)*.04; }
@@ -1010,6 +1170,7 @@ const $ = id => document.getElementById(id);
 $('bRun').onclick = e => { state.running = !state.running; e.target.classList.toggle('on', state.running); };
 $('bDone').onclick = () => { state.running = false; $('bRun').classList.remove('on'); spawnBirds(performance.now()); };
 $('bBirds').onclick = () => spawnBirds(performance.now());
+$('bRings').disabled=selectedScene==='alpine';
 $('bRings').onclick = () => spawnLakeRings(frozen!=null ? frozen : performance.now());
 $('bReset').onclick = () => { startReset(); $('sUse').value = 0; $('useOut').textContent = '0%'; };
 const canPop = 'documentPictureInPicture' in window;

@@ -248,7 +248,14 @@ controls, including **pop out ⧉** on supported browsers. Opening
 `viewer/scene.html` directly uses sample data instead of live data.
 
 The top-right gear opens **Settings** in both the browser scene and floating
-window. **Music** lists tracks by category, with shuffle options and **Off**.
+window. **Scene** switches between **Lakeside** and **Alpine Valley**, remembered
+in this browser. Alpine Valley has layered peaks, snow that changes with the
+light, pine forests, drifting mist, and a winding river. Both scenes share the
+same usage-driven sun/moon cycle, birds, dusk fireflies, and turn stats. River
+shimmer and pine movement respond to working/idle state; clouds and mist drift
+slowly. Lake rings belong to Lakeside only.
+
+**Music** lists tracks by category, with shuffle options and **Off**.
 Selections save automatically to Claude's user plugin settings, sharing the
 same preference as `/config` and `/waiting-room:music`. The current loop keeps
 playing; each new prompt reads the saved preference directly, so the choice
