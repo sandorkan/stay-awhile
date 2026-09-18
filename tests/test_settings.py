@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import tempfile
 import unittest
-from test_runtime import ROOT, setup, server
+from test_runtime import ROOT, BASH, setup, server
 
 
 class SettingsTests(unittest.TestCase):
@@ -59,7 +59,10 @@ class SettingsTests(unittest.TestCase):
         self.seed()
         real = self.data / 'real.json'
         self.settings.rename(real)
-        self.settings.symlink_to(real)
+        try:
+            self.settings.symlink_to(real)
+        except OSError as e:  # Windows needs a privilege for symlinks
+            self.skipTest(f"cannot create symlinks here: {e}")
         setup.save_music('ambient/dusk', 'none')
         self.assertTrue(self.settings.is_symlink())
         self.assertEqual(json.loads(real.read_text())['pluginConfigs']['stay-awhile@local']['options']['track'], 'ambient/dusk')
@@ -76,7 +79,7 @@ class SettingsTests(unittest.TestCase):
         config.parent.mkdir(parents=True)
         runtime_data = self.data / 'runtime'
         played = self.data / 'played'
-        env = {**os.environ, 'HOME': str(home), 'CLAUDE_PLUGIN_ROOT': str(ROOT),
+        env = {**os.environ, 'HOME': str(home), 'USERPROFILE': str(home), 'CLAUDE_PLUGIN_ROOT': str(ROOT),
                'CLAUDE_PLUGIN_DATA': str(runtime_data), 'STAY_AWHILE_SIMULATION': '0',
                'CLAUDE_PLUGIN_OPTION_TRACK': 'heartbeat',
                'CLAUDE_PLUGIN_OPTION_CUES': 'false', 'CLAUDE_PLUGIN_OPTION_EYE_CUE_EVERY': '0',
@@ -89,7 +92,7 @@ class SettingsTests(unittest.TestCase):
 source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
 '''
         def turn(resume=False):
-            subprocess.run(['/bin/bash', '-c', shell, 'test'] + (['resume'] if resume else []),
+            subprocess.run([*BASH, '-c', shell, 'test'] + (['resume'] if resume else []),
                            input='{"session_id":"same-session"}', text=True, env=env,
                            capture_output=True, check=True)
         with patch.object(setup, 'SETTINGS', str(config)):
@@ -139,7 +142,7 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
         action, entry, _ = setup.statusline_plan({'statusLine': {'command': command}})
         self.assertEqual(action, 'replace')
         self.assertIn('CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN="echo hello"', entry['command'])
-        self.assertIn(setup.STATUSLINE, entry['command'])
+        self.assertIn(setup.shell_path(setup.STATUSLINE), entry['command'])
         self.assertNotIn('/old/waiting-room/', entry['command'])
 
     def test_renamed_hooks_and_setup_reuse_history_directory(self):
@@ -148,10 +151,10 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
         old.mkdir(parents=True)
         (old/'data-dir').write_text(str(old))
         (old/'waits.log').write_text('history')
-        env = {**os.environ, 'HOME': str(home), 'CLAUDE_PLUGIN_ROOT': str(ROOT),
+        env = {**os.environ, 'HOME': str(home), 'USERPROFILE': str(home), 'CLAUDE_PLUGIN_ROOT': str(ROOT),
                'CLAUDE_PLUGIN_DATA': str(home/'.claude/plugins/data/stay-awhile-inline'),
                'STAY_AWHILE_SIMULATION': '0'}
-        result = subprocess.run(['/bin/bash', '-c', 'source "$CLAUDE_PLUGIN_ROOT/scripts/lib.sh"; printf "%s" "$DATA"'],
+        result = subprocess.run([*BASH, '-c', 'source "$CLAUDE_PLUGIN_ROOT/scripts/lib.sh"; printf "%s" "$DATA"'],
                                 env=env, capture_output=True, text=True, check=True)
         self.assertEqual(result.stdout, str(old))
         with patch.dict(os.environ, env), patch.object(setup, 'DEFAULT_HOME', str(old)):

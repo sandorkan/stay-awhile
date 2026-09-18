@@ -1,6 +1,6 @@
 ---
 description: One-time setup for the Stay awhile viewer (adds the status line to your settings)
-allowed-tools: Bash(python3:*)
+allowed-tools: Bash(python3:*), Bash(python:*)
 ---
 
 Set up the Stay awhile viewer. This is meant to be run **once, after
@@ -29,3 +29,6 @@ open it yourself here.
 
 If `status` reports a settings.json that isn't valid JSON, stop and tell the
 user; don't try to repair it.
+
+The commands here say `python3`. Where that is not on PATH (typical on
+Windows), run the same command with `python`.

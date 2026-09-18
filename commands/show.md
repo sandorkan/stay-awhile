@@ -1,6 +1,6 @@
 ---
 description: Open the Stay awhile window (starts the local viewer server if needed)
-allowed-tools: Bash(python3:*)
+allowed-tools: Bash(python3:*), Bash(python:*)
 ---
 
 Open the Stay awhile viewer.
@@ -19,3 +19,6 @@ numbers.
 
 Don't mention stopping the server: it stops on its own when the last session
 ends. `/stay-awhile:close` exists if they want it gone sooner.
+
+The commands here say `python3`. Where that is not on PATH (typical on
+Windows), run the same command with `python`.

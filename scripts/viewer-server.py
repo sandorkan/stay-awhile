@@ -46,7 +46,7 @@ def default_data():
     try:
         with open(os.path.join(DEFAULT_HOME, "data-dir"), encoding="utf-8") as f:
             pointed = f.read().strip()
-        if os.path.isdir(pointed):
+        if settings_tool.data_dir_ok(pointed):
             return pointed
     except OSError:
         pass
@@ -320,7 +320,7 @@ def main():
     if not os.path.isdir(args.data):
         print(f"  note: {args.data} doesn't exist yet — it appears once the plugin runs")
     if args.open:
-        threading.Timer(0.3, lambda: subprocess.run(["open", url], check=False)).start()
+        threading.Timer(0.3, lambda: settings_tool.open_url(url)).start()
     # Session end normally stops us. This is the backstop for a session that
     # died without one: no viewer, no working session, half an hour — retire.
     def idle_watch():

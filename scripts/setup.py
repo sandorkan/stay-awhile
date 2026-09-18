@@ -35,6 +35,12 @@ SETTINGS = os.path.expanduser("~/.claude/settings.json")
 DEFAULT_HOME = os.path.expanduser("~/.claude/waiting-room")
 
 
+def data_dir_ok(path):
+    """A pointer is followed only to an existing directory under .claude, where
+    Claude Code assigns them; a stray value must not redirect the viewer."""
+    return "/.claude/" in path.replace("\\", "/") and os.path.isdir(path)
+
+
 def resolve_data():
     """The hooks publish their real data dir in a pointer file; they're the only
     ones who know it, since Claude Code assigns it per plugin."""
@@ -44,7 +50,7 @@ def resolve_data():
             try:
                 with open(os.path.join(DEFAULT_HOME, "data-dir"), encoding="utf-8") as f:
                     legacy = f.read().strip()
-                if os.path.isdir(legacy):
+                if data_dir_ok(legacy):
                     return legacy
             except OSError:
                 if os.path.isfile(os.path.join(DEFAULT_HOME, "waits.log")):
@@ -53,7 +59,7 @@ def resolve_data():
     try:
         with open(os.path.join(DEFAULT_HOME, "data-dir"), encoding="utf-8") as f:
             pointed = f.read().strip()
-        if os.path.isdir(pointed):
+        if data_dir_ok(pointed):
             return pointed
     except OSError:
         pass
@@ -63,6 +69,39 @@ def resolve_data():
 DATA = resolve_data()
 PORT = int(os.environ.get("STAY_AWHILE_PORT", os.environ.get("WAITING_ROOM_PORT", 8787)))
 URL = f"http://127.0.0.1:{PORT}/"
+
+
+# ----------------------------------------------------------------- platform
+
+def bash_command():
+    """How to run the plugin's shell scripts: directly where the shebang works,
+    through Git for Windows' bash on Windows — never System32\\bash.exe, which
+    is the WSL launcher and would run them in a different world."""
+    if os.name != "nt":
+        return []
+    roots = [os.environ.get("ProgramFiles", r"C:\Program Files"),
+             os.environ.get("ProgramW6432", r"C:\Program Files"),
+             os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")]
+    candidates = [os.path.join(root, "Git", sub, "bash.exe")
+                  for root in roots for sub in ("bin", os.path.join("usr", "bin"))]
+    candidates.append(shutil.which("bash") or "")
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and "system32" not in candidate.lower():
+            return [candidate]
+    return ["bash"]
+
+
+def detached():
+    """Popen options for a child that must outlive the shell that started it."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def shell_path(path):
+    """A path as the shell running the status line sees it. On Windows that is
+    Git Bash, which takes C:/x/y; backslashes would be escapes."""
+    return path.replace("\\", "/") if os.name == "nt" else path
 
 
 # ----------------------------------------------------------------- helpers
@@ -86,9 +125,10 @@ def server_running():
 def statusline_plan(settings):
     """(action, new statusLine value, human explanation)."""
     current = settings.get("statusLine")
-    if isinstance(current, dict) and STATUSLINE in str(current.get("command", "")):
+    ours = shlex.quote(shell_path(STATUSLINE))
+    if isinstance(current, dict) and shell_path(STATUSLINE) in shell_path(str(current.get("command", ""))):
         return "keep", current, "status line already points at Stay awhile"
-    entry = {"type": "command", "command": shlex.quote(STATUSLINE), "refreshInterval": 5}
+    entry = {"type": "command", "command": ours, "refreshInterval": 5}
     if not current:
         return "add", entry, "no status line configured — add Stay awhile's"
     existing = current.get("command", "") if isinstance(current, dict) else str(current)
@@ -96,10 +136,10 @@ def statusline_plan(settings):
     import re
     old = r"(?:'[^']*waiting-room[^']*/scripts/statusline\.sh'|\"[^\"]*waiting-room[^\"]*/scripts/statusline\.sh\"|[^\s'\"]*waiting-room[^\s'\"]*/scripts/statusline\.sh)"
     if re.search(old, existing):
-        entry["command"] = re.sub(old, lambda _: shlex.quote(STATUSLINE), existing)
+        entry["command"] = re.sub(old, lambda _: ours, existing)
         return "replace", entry, "update the former Waiting Room status line"
     entry["command"] = (f"CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN={shlex.quote(existing)} "
-                        f"{shlex.quote(STATUSLINE)}")
+                        f"{ours}")
     return "chain", entry, f"keep your status line ({existing}) and append the usage segments"
 
 
@@ -281,7 +321,7 @@ def cmd_music(args):
         # finishing chime and no waiting for one to ring out
         env = dict(os.environ, CLAUDE_PLUGIN_OPTION_TRACK=track,
                    CLAUDE_PLUGIN_OPTION_CUES="false")
-        subprocess.run([os.path.join(HERE, "simulate.sh"), "silent", str(args.seconds)],
+        subprocess.run(bash_command() + [os.path.join(HERE, "simulate.sh"), "silent", str(args.seconds)],
                        env=env, check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"played {track}")
@@ -360,7 +400,7 @@ def cmd_start(_):
     log = open(os.path.join(DATA, "viewer-server.log"), "ab")
     proc = subprocess.Popen([sys.executable, SERVER, "--port", str(PORT), "--data", DATA],
                             stdout=log, stderr=log, stdin=subprocess.DEVNULL,
-                            start_new_session=True)   # outlives this shell
+                            **detached())   # outlives this shell
     for _ in range(20):
         time.sleep(0.1)
         if server_running():
@@ -382,9 +422,11 @@ def cmd_stop(args):
         record = read_server_record(d)
         if owns_server(record, SERVER):
             try:
+                # On Windows this is a plain terminate: the server's SIGTERM
+                # handler never runs, so the page just sees its stream drop.
                 os.kill(record['pid'], 15)
                 stopped.append(record['pid'])
-            except ProcessLookupError:
+            except OSError:
                 pass
         remove_server_record(d, record)
     if stopped:
@@ -425,6 +467,32 @@ CHROMES = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
            "google-chrome", "chromium", "microsoft-edge"]
 
 
+def browsers():
+    """Chromium-family browsers that can host the floating window, most likely
+    first. Windows installs them under Program Files, not on PATH."""
+    if os.name != "nt":
+        return CHROMES
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    local = os.environ.get("LOCALAPPDATA", "")
+    return [os.path.join(root, tail) for root, tail in [
+        (program_files, r"Google\Chrome\Application\chrome.exe"),
+        (program_files_x86, r"Google\Chrome\Application\chrome.exe"),
+        (local, r"Google\Chrome\Application\chrome.exe"),
+        (program_files_x86, r"Microsoft\Edge\Application\msedge.exe"),
+        (program_files, r"Microsoft\Edge\Application\msedge.exe"),
+    ] if root]
+
+
+def open_url(url):
+    """The system's default browser, as a last resort."""
+    if os.name == "nt":
+        os.startfile(url)
+        return
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    subprocess.run([opener, url], check=False)
+
+
 def cmd_open(args):
     """Open the viewer. In app mode where we can: a small chromeless window is a
     better host for the floating scene than a tab in your main browser."""
@@ -436,18 +504,20 @@ def cmd_open(args):
     if not server_running() and cmd_start(args) != 0:
         return 1
     url = URL + ("?dev" if getattr(args, "dev", False) else "")
-    for chrome in CHROMES:
+    for chrome in browsers():
         path = chrome if os.path.isabs(chrome) else shutil.which(chrome)
         if path and os.path.exists(path):
             subprocess.Popen([path, f"--app={url}", "--window-size=520,300"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             **detached())
             print(f"opened {url} in a standalone window")
             print(HOW_IT_WORKS)
             return 0
-    opener = "open" if sys.platform == "darwin" else "xdg-open"
-    subprocess.run([opener, url], check=False)
-    print(f"opened {url}")
+    try:
+        open_url(url)
+        print(f"opened {url}")
+    except OSError:
+        print(f"open {url} in Chrome or Edge")
     print(HOW_IT_WORKS)
     return 0
 

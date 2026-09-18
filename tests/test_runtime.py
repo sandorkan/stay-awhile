@@ -17,6 +17,9 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import runtime
 import setup
 
+# Scripts run through Git for Windows' bash on Windows, /bin/bash elsewhere.
+BASH = setup.bash_command() or ['/bin/bash']
+
 spec = importlib.util.spec_from_file_location('viewer_server', ROOT/'scripts/viewer-server.py')
 server = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)
@@ -35,7 +38,7 @@ class RuntimeTests(unittest.TestCase):
                 'CLAUDE_PLUGIN_OPTION_EYE_CUE_EVERY': '0', 'CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN': ''}
 
     def hook(self, script, sid='A', *args):
-        return subprocess.run(['/bin/bash', str(ROOT/'scripts'/script), *args],
+        return subprocess.run([*BASH, str(ROOT/'scripts'/script), *args],
                               input=json.dumps({'session_id': sid}), text=True,
                               env=self.env(), capture_output=True, check=True)
 
@@ -91,7 +94,7 @@ class RuntimeTests(unittest.TestCase):
         existing = "printf '%s' '$(printf EARLY)' `printf LATER` $VALUE\n"
         with patch.object(setup, 'STATUSLINE', str(stub)):
             _, entry, _ = setup.statusline_plan({'statusLine': {'command': existing}})
-        received = subprocess.check_output(['/bin/sh', '-c', entry['command']], text=True)
+        received = subprocess.check_output([*BASH, '-c', entry['command']], text=True)
         self.assertEqual(received, existing)
 
     def test_today_completed_turns_only(self):
@@ -112,7 +115,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_status_cache_survives_empty_payload_and_requires_100(self):
         env = self.env()
-        statusline = ['/bin/bash', str(ROOT/'scripts/statusline.sh')]
+        statusline = [*BASH, str(ROOT/'scripts/statusline.sh')]
         payload = {'rate_limits': {'five_hour': {'used_percentage': 99, 'resets_at': int(time.time())+1000}}}
         subprocess.run(statusline, input=json.dumps(payload), text=True, env=env, capture_output=True, check=True)
         self.assertFalse((self.data/'ran-out').exists())
@@ -132,7 +135,7 @@ class RuntimeTests(unittest.TestCase):
             {},
         ]
         for limits in snapshots:
-            subprocess.run(['/bin/bash', str(ROOT/'scripts/statusline.sh')],
+            subprocess.run([*BASH, str(ROOT/'scripts/statusline.sh')],
                            input=json.dumps({'rate_limits': limits}), text=True,
                            env=self.env(), capture_output=True, check=True)
             state = server.read_state(str(self.data))
@@ -156,11 +159,11 @@ touch "$STOP_FILE.2222"
 wait
 [ "$(cat "$LOOP_PID")" = 2222 ] && [ -f "$STOP_FILE.2222" ] && [ ! -f "$STOP_FILE.99999999" ]
 '''
-        subprocess.run(['/bin/bash', '-c', script], env=self.env(), capture_output=True, check=True)
+        subprocess.run([*BASH, '-c', script], env=self.env(), capture_output=True, check=True)
 
     def test_simulation_never_uses_inherited_data(self):
         (self.data/'sentinel').write_text('real session')
-        result = subprocess.run(['/bin/bash', str(ROOT/'scripts/simulate.sh'), 'silent', '0'],
+        result = subprocess.run([*BASH, str(ROOT/'scripts/simulate.sh'), 'silent', '0'],
                                 env=self.env(), text=True, capture_output=True, check=True)
         self.assertEqual(list(self.data.iterdir()), [self.data/'sentinel'])
         self.assertIn('silent', result.stdout)
@@ -173,7 +176,7 @@ cat() { return 1; }
 printf() { builtin printf "$@"; }
 source "$CLAUDE_PLUGIN_ROOT/scripts/lib.sh"
 '''
-        result = subprocess.run(['/bin/bash', '-c', script], env=self.env(), text=True, capture_output=True, check=True)
+        result = subprocess.run([*BASH, '-c', script], env=self.env(), text=True, capture_output=True, check=True)
         self.assertNotIn('.claude/stay-awhile', result.stdout)
 
 

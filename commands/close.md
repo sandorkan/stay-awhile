@@ -1,6 +1,6 @@
 ---
 description: Close the Stay awhile window and stop its local server
-allowed-tools: Bash(python3:*)
+allowed-tools: Bash(python3:*), Bash(python:*)
 ---
 
 Close the Stay awhile viewer.
@@ -16,3 +16,6 @@ claiming it was closed.
 This isn't normally needed: the server stops on its own when the last session
 ends. It's for putting the window away mid-session, or for starting over if
 something looks stuck (`close`, then `/stay-awhile:show`).
+
+The commands here say `python3`. Where that is not on PATH (typical on
+Windows), run the same command with `python`.

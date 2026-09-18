@@ -1,0 +1,6 @@
+# The hooks run under Git Bash on Windows, whose default core.autocrlf=true
+# would check the scripts out with CRLF. MSYS bash tolerates that, but nothing
+# else that reads these files should have to.
+* text=auto eol=lf
+*.wav binary
+*.png binary

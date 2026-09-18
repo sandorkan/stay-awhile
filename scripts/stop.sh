@@ -17,16 +17,18 @@ CUE="${1:-silent}"
 ENDING=""
 if [ "$CUE" = "session-end" ]; then ENDING=1; CUE=silent; fi
 
-INPUT="$(cat)"
-SID="$(printf '%s' "$INPUT" | session_id)"
-rm -f "$ACTIVE/$SID"
-[ "$CUE" != "needs-you" ] && rm -f "$DATA/turn-track/$SID"
-[ -n "$ENDING" ] && rm -f "$SESSIONS/$SID"
+IFS= read -r -d '' INPUT
+session_id SID "$INPUT"
+# One rm for everything this turn no longer needs (each fork costs under MSYS).
+GONE=("$ACTIVE/$SID")
+[ "$CUE" != "needs-you" ] && GONE+=("$DATA/turn-track/$SID")
+[ -n "$ENDING" ] && GONE+=("$SESSIONS/$SID")
+rm -f -- "${GONE[@]}" 2>/dev/null
 
-[ "$CUE" = "needs-you" ] && count_bump "$(perm_count "$SID")"
-wait_end "$SID" "$CUE" \
-  "$(printf '%s' "$INPUT" | json_str transcript_path)" \
-  "$(printf '%s' "$INPUT" | json_str cwd)"
+[ "$CUE" = "needs-you" ] && count_bump "$DATA/count/$SID.perms"
+json_get TRANSCRIPT transcript_path "$INPUT"
+json_get CWD cwd "$INPUT"
+wait_end "$SID" "$CUE" "$TRANSCRIPT" "$CWD"
 
 if ! any_active; then
   stop_loop
@@ -38,8 +40,8 @@ if [ "$CUE" != "silent" ] && [ "$CUES" != "false" ]; then
 fi
 
 # Recheck open-session leases in the setup tool, including idle sessions.
-if [ -n "$ENDING" ] && command -v python3 >/dev/null 2>&1; then
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" stop --if-idle </dev/null >/dev/null 2>&1 &
+if [ -n "$ENDING" ] && [ -n "$PY" ]; then
+  "$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" stop --if-idle </dev/null >/dev/null 2>&1 &
 fi
 
 exit 0

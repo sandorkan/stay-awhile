@@ -16,10 +16,54 @@ behaviour and options.
 - Run test scripts with `/bin/bash`, not zsh: `set -m` behaves differently.
 - Only a real session verifies hook wiring (which events fire when). Cheapest:
   `claude --plugin-dir . --model haiku`, then ask it to run `sleep 10 && false`.
+- **Never run a hook without `STAY_AWHILE_SIMULATION=1` while pointing
+  `CLAUDE_PLUGIN_DATA` at a scratch directory.** Non-simulation hooks publish
+  that directory in `~/.claude/waiting-room/data-dir`, and every live hook
+  then follows it. `data_dir_ok` now ignores pointers outside `.claude`, but
+  the flag is still the rule.
 
 - Regression checks: `python3 -m unittest discover -s tests -v` and
   `node tests/viewer.cjs`. These use temporary data and DOM mocks; they do not
-  replace a real Claude session or a browser PiP smoke test.
+  replace a real Claude session or a browser PiP smoke test. On Windows use
+  `python`; the tests run the scripts through Git's bash (`BASH` in
+  `test_runtime.py`) and skip the symlink test without that privilege.
+
+## Windows
+
+- Claude Code runs hooks and `Bash(...)` tools in Git for Windows' bash
+  (MSYS). `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` arrive as `C:/...`
+  with forward slashes; hook JSON carries `C:\\Users\\...`. MSYS accepts both,
+  and lib.sh normalises with `${var//"$BS"//}` (the bare `\\` pattern
+  misbehaves inside quotes).
+- `ours()` reads `/proc/<pid>/cmdline` on Windows (no fork, full length) and
+  compares with slashes normalised. Not MSYS `ps`: it has no `-o` and it
+  truncates rows to `$COLUMNS`, which Claude Code sets for hooks but not for
+  the Bash tool — so a bug can pass every simulation and still bite in a real
+  session. Elsewhere `ps -ww` for the same reason. Every detached job must
+  carry the plugin root in its command line, spelled with forward slashes:
+  `play.ps1` gets `-File C:/.../play.ps1`. `kill -- -PGID` does take native
+  children down.
+- The Windows player is `scripts/play.ps1`: winmm through
+  `System.Media.SoundPlayer` (`PlayLooping` is gapless) plus `waveOutSetVolume`
+  for volume and the fade, with the P/Invoke stub emitted by Reflection.Emit.
+  WPF MediaPlayer and the WMP COM object need the Media Feature Pack and were
+  dead on the machine this was built on. PowerShell can't see its MSYS PID, so
+  `start_loop` picks the fade marker and leaves it in `loop.marker`;
+  `loop_marker` resolves it, and `fade-cleanup.sh <pid> [marker]` removes it.
+- Each external command costs ~100 ms under MSYS, and hooks sit in the
+  prompt's critical path. lib.sh provides builtin replacements: `readf`,
+  `json_get`, `session_id VAR JSON`, `count_get VAR`, `now_epoch`; use `: >`
+  for touch and one `rm -f` for several files. A prompt hook is ~4 forks now
+  (python, ps, mv, the player). Measure with the sim before adding one.
+- `$PY` (lib.sh) is the Python for helper scripts: `python` first on Windows,
+  `python3` elsewhere; empty when neither exists. `setup.py` runs `.sh`
+  scripts through `bash_command()` (Git's bash, never `System32\bash.exe`,
+  which is WSL) and detaches children with `DETACHED_PROCESS`.
+- `runtime.process_identity` reads start time and command line from WMI on
+  Windows, so `setup.py stop` can own the server there. `os.kill` is a plain
+  terminate: the `bye` SSE event never fires on Windows.
+- `.gitattributes` forces LF. With `core.autocrlf=true` git prints CRLF
+  warnings on add; that is normal.
 
 ## Hook scripts
 
@@ -48,16 +92,18 @@ behaviour and options.
   long waits actually are before building anything that reacts to their length.
 - `needs-you` deliberately keeps the start file, so one turn logs twice: the
   stretch up to the permission prompt, then the whole turn.
-- Hooks read stdin once. start.sh and stop.sh capture it into `INPUT`, then
-  parse fields out of that with `json_str`; calling a parser twice on stdin
-  returns nothing the second time.
+- Hooks read stdin once. start.sh and stop.sh capture it into `INPUT` with a
+  builtin `read -d ''`, then parse fields out of that with `json_get` and
+  `session_id VAR JSON`; stdin has nothing left for a second reader.
 - Prompt metrics (words, images, paths…) come from `prompt-metrics.py`, which
   reads the last real user message in the transcript — tool-result messages
   don't count. It runs at turn end, not on UserPromptSubmit: that event blocks
   the prompt, and the prompt isn't in the transcript yet anyway. It reads only
   the last 512 KB, so a 131 MB transcript still costs ~80 ms.
-- Missing python3 or transcript logs zeros in columns 5-13. Zero means
+- Missing Python or transcript logs zeros in columns 5-13. Zero means
   "couldn't measure" — keep that distinction in anything that reads the log.
+  So does a long tool-heavy turn: the last prompt can lie beyond the 512 KB
+  tail the metrics script reads.
 - `wait_start` flags every other in-flight session as switched away from, so
   the switch is recorded against the turn that got abandoned, not the new one.
 

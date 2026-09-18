@@ -1,6 +1,6 @@
 ---
 description: Hear the Stay awhile tracks and choose one
-allowed-tools: Bash(python3:*), AskUserQuestion
+allowed-tools: Bash(python3:*), Bash(python:*), AskUserQuestion
 ---
 
 Let the user hear the tracks and pick one. Take no arguments; this is a menu,
@@ -32,3 +32,6 @@ tool adds its own free-text choice, so anything extra goes in the wording.
 Play before setting, so nothing changes until they say so. If they already
 know what they want, setting it directly is fine — but still play it first
 unless they say not to.
+
+The commands here say `python3`. Where that is not on PATH (typical on
+Windows), run the same command with `python`.
