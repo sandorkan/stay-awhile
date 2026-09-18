@@ -1,23 +1,43 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-  "name": "waiting-room",
-  "displayName": "Waiting Room",
+  "name": "stay-awhile",
+  "displayName": "Stay awhile",
   "version": "0.1.0",
-  "description": "Plays a looping sound while Claude works, with distinct cues for done, failed and needs-you, plus an optional look-away nudge.",
+  "description": "Ambient music, living landscapes, and gentle cues to help you stay with one task while Claude works.",
   "license": "MIT",
-  "keywords": ["audio", "notification", "ambient", "focus"],
+  "keywords": [
+    "audio",
+    "notification",
+    "ambient",
+    "focus"
+  ],
   "userConfig": {
     "track": {
       "type": "string",
       "title": "Working sound",
       "description": "Loop that plays while Claude is working.",
       "options": [
-        "shuffle-ambient", "shuffle-8-bit", "shuffle-soundscapes",
-        "ambient/hold-music", "ambient/dusk", "ambient/lantern", "ambient/drift",
-        "8-bit/town", "8-bit/harbor", "8-bit/snowfield", "8-bit/ruins",
-        "soundscapes/rain", "soundscapes/forest", "soundscapes/beach", "soundscapes/fireplace",
-        "breathing/4-6-calm", "breathing/5.5-5.5-resonance", "breathing/4-4-4-4-box", "breathing/sigh",
-        "heartbeat", "none"
+        "shuffle-ambient",
+        "shuffle-8-bit",
+        "shuffle-soundscapes",
+        "ambient/hold-music",
+        "ambient/dusk",
+        "ambient/lantern",
+        "ambient/drift",
+        "8-bit/town",
+        "8-bit/harbor",
+        "8-bit/snowfield",
+        "8-bit/ruins",
+        "soundscapes/rain",
+        "soundscapes/forest",
+        "soundscapes/beach",
+        "soundscapes/fireplace",
+        "breathing/4-6-calm",
+        "breathing/5.5-5.5-resonance",
+        "breathing/4-4-4-4-box",
+        "breathing/sigh",
+        "heartbeat",
+        "none"
       ],
       "default": "breathing/4-6-calm"
     },
@@ -43,5 +63,7 @@
       "min": 0,
       "max": 100
     }
-  }
+  },
+  "homepage": "https://github.com/sandorkan/stay-awhile",
+  "repository": "https://github.com/sandorkan/stay-awhile"
 }

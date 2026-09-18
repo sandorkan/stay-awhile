@@ -211,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         host = self.headers.get("Host", "")
         allowed = {f"127.0.0.1:{self.server.server_port}",
                    f"localhost:{self.server.server_port}"}
-        return (host in allowed and self.headers.get("X-Waiting-Room") == "1"
+        return (host in allowed and self.headers.get("X-Stay-Awhile") == "1"
                 and self.headers.get("Origin", f"http://{host}") == f"http://{host}"
                 and self.headers.get("Sec-Fetch-Site", "same-origin") == "same-origin")
 
@@ -297,7 +297,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--port", type=int, default=int(os.environ.get("WAITING_ROOM_PORT", 8787)))
+    ap.add_argument("--port", type=int, default=int(os.environ.get("STAY_AWHILE_PORT", os.environ.get("WAITING_ROOM_PORT", 8787))))
     ap.add_argument("--data", default=os.environ.get("CLAUDE_PLUGIN_DATA", DEFAULT_DATA))
     ap.add_argument("--open", action="store_true", help="open the viewer in a browser")
     args = ap.parse_args()
@@ -316,7 +316,7 @@ def main():
         os._exit(0)
 
     url = f"http://127.0.0.1:{args.port}/"
-    print(f"waiting-room viewer on {url}  (data: {args.data})")
+    print(f"stay-awhile viewer on {url}  (data: {args.data})")
     if not os.path.isdir(args.data):
         print(f"  note: {args.data} doesn't exist yet — it appears once the plugin runs")
     if args.open:

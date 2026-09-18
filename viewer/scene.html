@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Waiting Room — live scene</title>
+<title>Stay awhile — live scene</title>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0b0d12; color: #8a93a6; padding: 24px;
@@ -94,9 +94,9 @@
   .note { margin-top: 12px; max-width: 70ch; line-height: 1.6; }
 </style>
 
-<h1>Waiting Room — live scene</h1>
+<h1>Stay awhile — live scene</h1>
 <div class="launcher" id="launcher" hidden>
-  <p class="launcher-msg" id="launcherMsg">Waiting Room runs in a small window that floats above your terminal.</p>
+  <p class="launcher-msg" id="launcherMsg">Stay awhile runs in a small window that floats above your terminal.</p>
   <button type="button" id="bLaunch">Open the window</button>
   <p class="launcher-hint" id="launcherHint">Chrome and Edge only. This window can be minimised afterwards.</p>
 </div>
@@ -147,14 +147,21 @@ const settingsPanel=document.getElementById('settingsPanel');
 const settingsClose=document.getElementById('settingsClose');
 const musicSelect=document.getElementById('musicSelect');
 const sceneSelect=document.getElementById('sceneSelect');
+// Copy legacy browser preferences once; never override a newer choice.
+try {
+  for(const [oldKey,newKey] of [['wr-scene','sa-scene'],['wr-strip-2','sa-strip-2']]) {
+    if(localStorage.getItem(newKey)==null && localStorage.getItem(oldKey)!=null)
+      localStorage.setItem(newKey,localStorage.getItem(oldKey));
+  }
+} catch(e) {}
 let selectedScene='lakeside';
-try { const saved=localStorage.getItem('wr-scene'); if(['alpine','coast','desert'].includes(saved)) selectedScene=saved; } catch(e) {}
+try { const saved=localStorage.getItem('sa-scene'); if(['alpine','coast','desert'].includes(saved)) selectedScene=saved; } catch(e) {}
 sceneSelect.value=selectedScene;
 sceneSelect.onchange=()=>{
   selectedScene=['alpine','coast','desert'].includes(sceneSelect.value)?sceneSelect.value:'lakeside';
   cache.key='';
   document.getElementById('bRings').disabled=selectedScene!=='lakeside';
-  try {localStorage.setItem('wr-scene',selectedScene);} catch(e) {}
+  try {localStorage.setItem('sa-scene',selectedScene);} catch(e) {}
 };
 const settingsFeedback=document.getElementById('settingsFeedback');
 // ---------------------------------------------------------------- palettes
@@ -1383,7 +1390,7 @@ async function popOut() {
     { width: 520, height: Math.round(520 * ratio) });
   for (const style of document.querySelectorAll('style'))
     pipWindow.document.head.append(style.cloneNode(true));
-  pipWindow.document.title = 'Waiting Room';
+  pipWindow.document.title = 'Stay awhile';
   pipWindow.document.body.classList.add('pip');
   pipWindow.document.body.append(frameEl);        // the canvas keeps rendering: same element
   pipWindow.document.addEventListener('keydown', stripKey);
@@ -1400,19 +1407,19 @@ async function popOut() {
 // Capture nodes before PiP adoption; use their current ownerDocument for new DOM.
 const dayStrip = document.querySelector('.day-strip');
 let stripShown = false;
-try { stripShown = localStorage.getItem('wr-strip-2') === 'on'; } catch (e) {}
+try { stripShown = localStorage.getItem('sa-strip-2') === 'on'; } catch (e) {}
 function setStrip(on) {
   stripShown = on;
   dayStrip.hidden = !on;
   stripToggle.checked = on;
-  try { localStorage.setItem('wr-strip-2', on ? 'on' : 'off'); } catch (e) {}
+  try { localStorage.setItem('sa-strip-2', on ? 'on' : 'off'); } catch (e) {}
 }
 setStrip(stripShown);
 stripToggle.onchange = () => setStrip(stripToggle.checked);
 let savedTrack = null, savingMusic = false, settingsLoad = 0;
 async function settingsRequest(method = 'GET', data) {
   const response = await fetch('/settings', {
-    method, headers: {'X-Waiting-Room':'1', ...(data ? {'Content-Type':'application/json'} : {})},
+    method, headers: {'X-Stay-Awhile':'1', ...(data ? {'Content-Type':'application/json'} : {})},
     ...(data ? {body:JSON.stringify(data)} : {}), cache:'no-store'
   });
   const result = await response.json();
@@ -1527,7 +1534,7 @@ if (HOST) {
   onPipClosed(() => {
     if (closingViewer) return;
     document.body.classList.remove('popped');
-    msg.textContent = 'Waiting Room runs in a small window that floats above your terminal.';
+    msg.textContent = 'Stay awhile runs in a small window that floats above your terminal.';
     btn.textContent = 'Open the window';
     btn.onclick = null; // reload below reinstalls the launcher
     hint.textContent = 'Chrome and Edge only. This window can be minimised afterwards.';

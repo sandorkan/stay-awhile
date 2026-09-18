@@ -1,14 +1,14 @@
 {
-  "name": "waiting-room-marketplace",
+  "name": "stay-awhile-marketplace",
   "owner": {
     "name": "Sandro Brunner",
     "url": "https://github.com/sandorkan"
   },
   "plugins": [
     {
-      "name": "waiting-room",
+      "name": "stay-awhile",
       "source": "./",
-      "description": "Audio while Claude works: a loop for presence, distinct cues for done, failed and needs-you, and an optional look-away nudge."
+      "description": "Ambient music, living landscapes, and gentle cues to help you stay with one task while Claude works."
     }
   ]
 }

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Legacy names remain valid for existing launchers and isolated auditions.
+export STAY_AWHILE_SIMULATION="${STAY_AWHILE_SIMULATION:-${WAITING_ROOM_SIMULATION:-}}"
 # statusLine hook. Two jobs:
 #   1. save the payload, which is the only local source of the real rate-limit
 #      numbers (the same ones /usage shows), for the viewer to read;
@@ -18,6 +20,14 @@ if [ -z "$DATA" ]; then
   # the hooks publish their real data dir here; fall back to the default
   DATA="$(cat "$HOME/.claude/waiting-room/data-dir" 2>/dev/null)"
   [ -d "$DATA" ] || DATA="$HOME/.claude/waiting-room"
+fi
+# Match the renamed hooks when Claude passes the new assigned data directory.
+if [ "${STAY_AWHILE_SIMULATION:-}" != 1 ]; then
+  case "$DATA" in *stay-awhile*)
+    legacy_data="$(cat "$HOME/.claude/waiting-room/data-dir" 2>/dev/null)"
+    [ -n "$legacy_data" ] || { [ ! -f "$HOME/.claude/waiting-room/waits.log" ] || legacy_data="$HOME/.claude/waiting-room"; }
+    [ ! -d "$legacy_data" ] || DATA="$legacy_data" ;;
+  esac
 fi
 mkdir -p "$DATA" 2>/dev/null
 
@@ -65,7 +75,7 @@ cache_window seven_day "$WEEK"
 cache_window spend_limit "$(pct_of spend_limit)"
 
 # Refresh the open-session lease even while no turn is running.
-if [ -n "$SID" ] && [ "${WAITING_ROOM_SIMULATION:-}" != 1 ]; then
+if [ -n "$SID" ] && [ "${STAY_AWHILE_SIMULATION:-}" != 1 ]; then
   mkdir -p "$DATA/sessions" 2>/dev/null
   touch "$DATA/sessions/$SID" 2>/dev/null
 fi

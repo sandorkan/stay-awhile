@@ -27,7 +27,7 @@ class EventSource { static CLOSED=2;static CONNECTING=0; constructor(){this.read
 let selectedTrack='none', failSave=false;
 const preferences=new Map([['wr-strip-2','on']]);
 const settingsFetch=async(url,options)=>{
-  assert.equal(url,'/settings'); assert.equal(options.headers['X-Waiting-Room'],'1');
+  assert.equal(url,'/settings'); assert.equal(options.headers['X-Stay-Awhile'],'1');
   if(options.method==='POST') {
     if(failSave) return {ok:false,json:async()=>({error:'Save failed'})};
     selectedTrack=JSON.parse(options.body).track;
@@ -42,6 +42,7 @@ const context=vm.createContext({console,document:parentDocument,location:{protoc
 const run=code=>vm.runInContext(code,context);
 run(source);
 assert.equal(element('stripToggle').checked,true);
+assert.equal(preferences.get('sa-strip-2'),'on');
 (async()=>{
   run('applyLive({five_hour:{used:100,resets_at:1003600},seven_day:{used:45,resets_at:1200000},ran_out_at:996400,running:false,turns:[]})');
   assert.equal(run('state.moonF'),.5);
@@ -68,7 +69,7 @@ assert.equal(element('stripToggle').checked,true);
   assert.equal(pipDocument.activeElement,element('settingsToggle'));
   run("setStrip(false);stripKey({key:'b',target:{matches:()=>true}})");
   assert.equal(element('stripToggle').checked,false);
-  assert.equal(preferences.get('wr-strip-2'),'off');
+  assert.equal(preferences.get('sa-strip-2'),'off');
   now=1003601;run('paintHud()');assert.equal(run('state.nightAmt'),0);assert.equal(element('hudL').textContent,'—');
   for(const used of [.18,.5,.88,1]){
     run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
@@ -77,53 +78,53 @@ assert.equal(element('stripToggle').checked,true);
   const lakePixels=Buffer.from(pixels);
   assert.equal(parentDocument.getElementById('sceneSelect'),null);
   element('sceneSelect').value='alpine';element('sceneSelect').onchange();
-  assert.equal(preferences.get('wr-scene'),'alpine');
+  assert.equal(preferences.get('sa-scene'),'alpine');
   for(const used of [.18,.5,.88,1]) {
     run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
     assert(pixels.some((v,i)=>v!==lakePixels[i]));
     assert(pixels.every((v,i)=>i%4!==3 || v===255));
-    if(process.env.WR_SCENE_DUMP) {
+    if(process.env.SA_SCENE_DUMP) {
       // PPM exports come straight from the renderer, without browser automation.
       const rgb=Buffer.alloc(480*225*3);
       for(let i=0;i<480*225;i++)for(let c=0;c<3;c++)rgb[i*3+c]=pixels[i*4+c];
-      fs.writeFileSync(`/tmp/wr-alpine-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
+      fs.writeFileSync(`/tmp/sa-alpine-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
     }
   }
   const alpineBefore=Buffer.from(pixels);run('render(19000)');
   assert(pixels.some((v,i)=>v!==alpineBefore[i]),'Alpine animation should advance');
   element('sceneSelect').value='coast';element('sceneSelect').onchange();
-  assert.equal(preferences.get('wr-scene'),'coast');
+  assert.equal(preferences.get('sa-scene'),'coast');
   for(const used of [.18,.5,.88,1]) {
     run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
     assert(pixels.every((v,i)=>i%4!==3 || v===255));
     assert.equal(run('coastalLightAmount()>0'),used>.72);
-    if(process.env.WR_SCENE_DUMP) {
+    if(process.env.SA_SCENE_DUMP) {
       const rgb=Buffer.alloc(480*225*3);
       for(let i=0;i<480*225;i++)for(let c=0;c<3;c++)rgb[i*3+c]=pixels[i*4+c];
-      fs.writeFileSync(`/tmp/wr-coast-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
+      fs.writeFileSync(`/tmp/sa-coast-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
     }
   }
   const coastBefore=Buffer.from(pixels);run('render(19000)');
   assert(pixels.some((v,i)=>v!==coastBefore[i]),'Coastal animation should advance');
   element('sceneSelect').value='desert';element('sceneSelect').onchange();
-  assert.equal(preferences.get('wr-scene'),'desert');
+  assert.equal(preferences.get('sa-scene'),'desert');
   for(const used of [.18,.5,.88,1]) {
     run(`state.used=${used};state.shown=null;state.nightAmt=${used===1?1:0};render(3000)`);
     assert(pixels.every((v,i)=>i%4!==3 || v===255));
-    if(process.env.WR_SCENE_DUMP) {
+    if(process.env.SA_SCENE_DUMP) {
       const rgb=Buffer.alloc(480*225*3);
       for(let i=0;i<480*225;i++)for(let c=0;c<3;c++)rgb[i*3+c]=pixels[i*4+c];
-      fs.writeFileSync(`/tmp/wr-desert-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
+      fs.writeFileSync(`/tmp/sa-desert-${used}.ppm`,Buffer.concat([Buffer.from('P6\n480 225\n255\n'),rgb]));
     }
   }
   run('state.used=.5;state.shown=null;state.nightAmt=0;render(3000)');
   const desertBefore=Buffer.from(pixels);run('render(30000)');
   assert(pixels.some((v,i)=>v!==desertBefore[i]),'Desert atmosphere should advance');
   element('sceneSelect').value='lakeside';element('sceneSelect').onchange();
-  assert.equal(preferences.get('wr-scene'),'lakeside');
+  assert.equal(preferences.get('sa-scene'),'lakeside');
   pip.close();assert(!moved);run('paintHud();setStrip(true)');
   failSave=false;selectedTrack='none';await run('loadMusic()');assert.equal(element('musicSelect').value,'none');
-  preferences.set('wr-scene','desert');
+  preferences.set('sa-scene','desert');
   const reopened=vm.createContext({...context});vm.runInContext(source,reopened);
   assert.equal(vm.runInContext('selectedScene',reopened),'desert');
   assert.equal(element('sceneSelect').value,'desert');

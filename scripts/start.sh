@@ -30,7 +30,7 @@ TRACK="${CLAUDE_PLUGIN_OPTION_TRACK:-breathing/4-6-calm}"
 TURN_TRACK="$DATA/turn-track/$SID"
 if [ "$1" = "resume" ] && [ -f "$TURN_TRACK" ]; then
   TRACK="$(cat "$TURN_TRACK" 2>/dev/null)"
-elif [ "${WAITING_ROOM_SIMULATION:-}" != 1 ] && command -v python3 >/dev/null 2>&1; then
+elif [ "${STAY_AWHILE_SIMULATION:-}" != 1 ] && command -v python3 >/dev/null 2>&1; then
   SAVED_TRACK="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" music current 2>/dev/null)"
   [ -n "$SAVED_TRACK" ] && TRACK="$SAVED_TRACK"
 fi

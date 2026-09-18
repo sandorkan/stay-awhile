@@ -1,6 +1,6 @@
-# Waiting Room
+# Stay awhile
 
-Audio for the dead minute while Claude Code works.
+A little atmosphere to keep you with the task.
 
 A loop plays while a turn is running and stops when it ends. Finishing,
 failing, and needing your input each get a distinct one-shot, so you can tell
@@ -37,14 +37,14 @@ wrong way — which is worth noticing.
 ## Install
 
 ```bash
-/plugin marketplace add sandorkan/waiting-room
-/plugin install waiting-room@waiting-room-marketplace
+/plugin marketplace add sandorkan/stay-awhile
+/plugin install stay-awhile@stay-awhile-marketplace
 ```
 
 Or load it locally while developing:
 
 ```bash
-claude --plugin-dir ./waiting-room
+claude --plugin-dir ./stay-awhile
 ```
 
 To hear it without spending tokens, `scripts/simulate.sh` fires the hooks the
@@ -60,7 +60,7 @@ CLAUDE_PLUGIN_OPTION_TRACK=soundscapes/rain scripts/simulate.sh done 15
 Run `/config` and pick a track, or set it at install time:
 
 ```bash
-claude plugin install waiting-room@waiting-room-marketplace \
+claude plugin install stay-awhile@stay-awhile-marketplace \
   --config track=breathing/5.5-5.5-resonance --config volume=0.3
 ```
 
@@ -173,10 +173,10 @@ percentages and their reset times — which is what the visual viewer needs.
 These are percentages **used**, followed by hours and minutes until the
 five-hour window resets. The weekly percentage also means used.
 
-**After installing the plugin, run `/waiting-room:init` once.** It shows what
+**After installing the plugin, run `/stay-awhile:init` once.** It shows what
 it would change, asks before touching your settings, and explains the trade.
-Then `/waiting-room:show` opens the window whenever you want it, and
-`/waiting-room:close` puts it away early (it stops by itself when your last
+Then `/stay-awhile:show` opens the window whenever you want it, and
+`/stay-awhile:close` puts it away early (it stops by itself when your last
 session ends).
 
 Under the hood that's `scripts/setup.py`, which also works on its own:
@@ -195,7 +195,7 @@ path printed by `python3 scripts/setup.py status`:
 {
   "statusLine": {
     "type": "command",
-    "command": "\"/absolute/path/to/waiting-room/scripts/statusline.sh\"",
+    "command": "\"/absolute/path/to/stay-awhile/scripts/statusline.sh\"",
     "refreshInterval": 5
   }
 }
@@ -213,12 +213,12 @@ Two things worth knowing before you add it:
   session's first API response.** An empty row before then is correct, not a
   failure. Each window also disappears from the payload once it resets.
 
-**Already have a status line?** `/waiting-room:init` offers to chain to it. By
+**Already have a status line?** `/stay-awhile:init` offers to chain to it. By
 hand, set `CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN` to it and its output is printed first, with the
 usage segments appended:
 
 ```json
-"command": "CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN='~/.claude/my-statusline.sh' \"/absolute/path/to/waiting-room/scripts/statusline.sh\""
+"command": "CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN='~/.claude/my-statusline.sh' \"/absolute/path/to/stay-awhile/scripts/statusline.sh\""
 ```
 
 ## The viewer
@@ -237,7 +237,7 @@ checkpoints stay in the log but don't count as additional turns in the strip.
 The strip is hidden initially; press `b` or open the top-right gear and toggle
 **Show turn stats**. Its visibility is remembered in this browser. Hover, tap, or use arrow keys on the bars for duration and outcome.
 
-`/waiting-room:show` opens a small host window. Click **Open the window** to
+`/stay-awhile:show` opens a small host window. Click **Open the window** to
 move the scene into a floating, always-on-top window (Chrome and Edge only).
 Keep the host open; it can be minimised. Closing the floating window returns
 to the launcher. On other browsers, add `?dev` to the URL to view the scene in
@@ -267,7 +267,7 @@ It shares the usage cycle and stars, without water effects or fireflies.
 
 **Music** lists tracks by category, with shuffle options and **Off**.
 Selections save automatically to Claude's user plugin settings, sharing the
-same preference as `/config` and `/waiting-room:music`. The current loop keeps
+same preference as `/config` and `/stay-awhile:music`. The current loop keeps
 playing; each new prompt reads the saved preference directly, so the choice
 applies when a new loop starts without restarting Claude. A permission-pause
 resume keeps that turn's original track. Reopening the panel reads the latest saved choice. **Show turn
@@ -287,7 +287,7 @@ The server stays available while another session is open, including between
 prompts. Session hooks register leases and the status line refreshes them.
 Leases older than two hours are ignored; after 30 minutes with no viewers or
 fresh session/activity leases, an abandoned server retires. A deliberate
-`/waiting-room:close` stops it earlier. Server ownership is checked before any
+`/stay-awhile:close` stops it earlier. Server ownership is checked before any
 process is signalled.
 
 ## How long are the waits, really
@@ -341,7 +341,7 @@ awk -F'\t' '$3 == "needs-you" {next} NR>1 && $16<20 && $16>=0 {short[bucket]++} 
 
 ## Choosing music
 
-`/waiting-room:music` opens a category/track menu, plays a short preview, and
+`/stay-awhile:music` opens a category/track menu, plays a short preview, and
 asks whether to keep it. Previews use a separate temporary directory and
 never redirect live status data or stop another session's audio. Keeping a
 track backs up `settings.json` and saves the choice without interrupting audio.
@@ -386,3 +386,22 @@ gaps mean it's thinking. Left out of v1 to keep the surface small.
 ## License
 
 MIT. Audio generated by `scripts/gen-sounds.py` is released under CC0.
+
+## Upgrading from Waiting Room
+
+The plugin is now **Stay awhile**, with commands under `/stay-awhile:`. The
+GitHub repository is `sandorkan/stay-awhile`; the installed plugin is
+`stay-awhile@stay-awhile-marketplace`. Disable the old `waiting-room` plugin
+before enabling the renamed one, so hooks do not run twice.
+
+Run `/stay-awhile:init` after installing. Its setup plan copies missing plugin
+options from the old identity, preserving existing Stay awhile choices. It
+also updates an old viewer status-line path rather than chaining it twice.
+The previous plugin settings are retained for rollback.
+
+The existing `~/.claude/waiting-room` data directory and pointer deliberately
+keep their old paths for compatibility. If a previous pointer exists, the
+renamed hooks reuse that directory so turn history stays available. Browser
+scene and turn-strip preferences migrate on first load. The old
+`WAITING_ROOM_PORT` and `WAITING_ROOM_SIMULATION` environment variables remain
+accepted as fallbacks for `STAY_AWHILE_PORT` and `STAY_AWHILE_SIMULATION`.

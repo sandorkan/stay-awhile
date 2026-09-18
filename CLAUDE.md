@@ -1,4 +1,4 @@
-# Waiting Room
+# Stay awhile
 
 Claude Code plugin: hooks in `hooks/hooks.json` call `scripts/start.sh` and
 `scripts/stop.sh`, which play loops and cues from `sounds/`. See README.md for
@@ -9,7 +9,7 @@ behaviour and options.
 - `scripts/simulate.sh [done|failed|needs-you] [seconds]` fires the hooks the
   way a turn would. Costs no tokens; use it before a real session.
 - For silent tests set `CLAUDE_PLUGIN_OPTION_VOLUME=0`,
-  `WAITING_ROOM_SIMULATION=1`, and `CLAUDE_PLUGIN_DATA` to a scratch dir.
+  `STAY_AWHILE_SIMULATION=1`, and `CLAUDE_PLUGIN_DATA` to a scratch dir.
   Simulation mode suppresses publication of the shared data-directory pointer.
   `simulate.sh` always creates its own temporary data directory, even if it
   inherits `CLAUDE_PLUGIN_DATA`. Hooks read JSON on stdin: `echo '{"session_id":"A"}' | scripts/start.sh`.
@@ -95,7 +95,7 @@ behaviour and options.
 - `/settings` requires the viewer's custom header and a loopback Host with the
   server's port; reject foreign origins and do not enable CORS. Never expose
   arbitrary settings edits or shell commands through this endpoint.
-- Scene selection (`wr-scene` in localStorage) is browser-local. All scenes
+- Scene selection (`sa-scene` in localStorage) is browser-local. All scenes
   share usage, reset timing, HUD, and history. Alpine terrain overlays the sky
   after clouds/stars; foreground pines overlay birds. Cache keys include scene
   identity. Coast uses its own water, cliff/tower foreground, and dusk/night
@@ -104,7 +104,7 @@ behaviour and options.
   sandstone palette, cached terraced cliffs, a rocky yucca overlook and subtle heat/dust;
   its effects use the shared reduced-motion clock.
 - The gear and its settings panel live inside the adopted frame. The turn-stats
-  checkbox keeps the `wr-strip-2` browser preference. File demos disable music
+  checkbox keeps the `sa-strip-2` browser preference. File demos disable music
   changes. Keyboard shortcuts must not fire inside form controls.
   It sends the turn's start time, not a clock, so the SSE stream stays quiet
   until something real changes. The moon and reset countdown advance locally.
@@ -133,3 +133,14 @@ behaviour and options.
 - A new track must be added to `userConfig.track.options` in
   `.claude-plugin/plugin.json`, or the `/config` picker won't offer it.
   Shuffle picks up new files in a category folder on its own.
+
+## Rename compatibility
+
+- Public identity is `stay-awhile` / **Stay awhile**; command filenames stay
+  `init`, `show`, `close`, and `music` and inherit that namespace.
+- The public repository is `sandorkan/stay-awhile`. Retain the legacy data
+  directory/pointer, old environment-variable fallbacks, and browser-key
+  migration intentionally; do not mechanically replace those strings.
+- `setup.py install` plans migration of missing legacy plugin options even if
+  the status line is already configured. Apply only through its existing
+  explicit `--apply` flow; never erase the old configuration entry.

@@ -1,5 +1,5 @@
 ---
-description: Hear the Waiting Room tracks and choose one
+description: Hear the Stay awhile tracks and choose one
 allowed-tools: Bash(python3:*), AskUserQuestion
 ---
 

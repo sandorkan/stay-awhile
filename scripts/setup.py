@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Set up and run the Waiting Room viewer.
+"""Set up and run the Stay awhile viewer.
 
     setup.py status              what's configured, and whether the server runs
     setup.py install             show what would change in settings.json
@@ -40,6 +40,15 @@ def resolve_data():
     ones who know it, since Claude Code assigns it per plugin."""
     env = os.environ.get("CLAUDE_PLUGIN_DATA")
     if env:
+        if "stay-awhile" in env and os.environ.get("STAY_AWHILE_SIMULATION", os.environ.get("WAITING_ROOM_SIMULATION")) != "1":
+            try:
+                with open(os.path.join(DEFAULT_HOME, "data-dir"), encoding="utf-8") as f:
+                    legacy = f.read().strip()
+                if os.path.isdir(legacy):
+                    return legacy
+            except OSError:
+                if os.path.isfile(os.path.join(DEFAULT_HOME, "waits.log")):
+                    return DEFAULT_HOME
         return env
     try:
         with open(os.path.join(DEFAULT_HOME, "data-dir"), encoding="utf-8") as f:
@@ -52,7 +61,7 @@ def resolve_data():
 
 
 DATA = resolve_data()
-PORT = int(os.environ.get("WAITING_ROOM_PORT", 8787))
+PORT = int(os.environ.get("STAY_AWHILE_PORT", os.environ.get("WAITING_ROOM_PORT", 8787)))
 URL = f"http://127.0.0.1:{PORT}/"
 
 
@@ -78,11 +87,17 @@ def statusline_plan(settings):
     """(action, new statusLine value, human explanation)."""
     current = settings.get("statusLine")
     if isinstance(current, dict) and STATUSLINE in str(current.get("command", "")):
-        return "keep", current, "status line already points at Waiting Room"
+        return "keep", current, "status line already points at Stay awhile"
     entry = {"type": "command", "command": shlex.quote(STATUSLINE), "refreshInterval": 5}
     if not current:
-        return "add", entry, "no status line configured — add Waiting Room's"
+        return "add", entry, "no status line configured — add Stay awhile's"
     existing = current.get("command", "") if isinstance(current, dict) else str(current)
+    # Replace just our old script token, preserving an existing chained command.
+    import re
+    old = r"(?:'[^']*waiting-room[^']*/scripts/statusline\.sh'|\"[^\"]*waiting-room[^\"]*/scripts/statusline\.sh\"|[^\s'\"]*waiting-room[^\s'\"]*/scripts/statusline\.sh)"
+    if re.search(old, existing):
+        entry["command"] = re.sub(old, lambda _: shlex.quote(STATUSLINE), existing)
+        return "replace", entry, "update the former Waiting Room status line"
     entry["command"] = (f"CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN={shlex.quote(existing)} "
                         f"{shlex.quote(STATUSLINE)}")
     return "chain", entry, f"keep your status line ({existing}) and append the usage segments"
@@ -115,15 +130,33 @@ def plugin_id(settings):
     """The key this plugin's options live under. An inline (--plugin-dir) load
     and a marketplace install use different ids, so prefer what's already there."""
     for key in (settings.get("pluginConfigs") or {}):
-        if key.split("@")[0] == "waiting-room":
+        if key.split("@")[0] == "stay-awhile":
             return key
     for key in (settings.get("enabledPlugins") or {}):
-        if key.split("@")[0] == "waiting-room":
+        if key.split("@")[0] == "stay-awhile":
             return key
-    return "waiting-room@inline"
+    return "stay-awhile@inline"
+
+
+def migrated_options(settings):
+    """Fill only missing new options; retain the old entry for rollback."""
+    import copy
+    updated = copy.deepcopy(settings)
+    target = plugin_id(settings)
+    configs = updated.get("pluginConfigs") or {}
+    legacy = next((v for k, v in configs.items() if k.split("@")[0] == "waiting-room"), None)
+    changed = False
+    if isinstance(legacy, dict) and isinstance(legacy.get("options"), dict):
+        options = updated.setdefault("pluginConfigs", {}).setdefault(target, {}).setdefault("options", {})
+        for key, value in legacy["options"].items():
+            if key not in options:
+                options[key] = value
+                changed = True
+    return updated, changed
 
 
 def current_track(settings):
+    settings, _ = migrated_options(settings)
     pid = plugin_id(settings)
     return ((settings.get("pluginConfigs") or {}).get(pid) or {}).get("options", {}).get("track")
 
@@ -176,7 +209,7 @@ def save_music(track, expected=None):
                 raise ValueError("Music changed elsewhere. Close and reopen settings before choosing again.")
         settings.setdefault("pluginConfigs", {}).setdefault(plugin_id(settings), {}) \
                 .setdefault("options", {})["track"] = track
-        fd, temporary = tempfile.mkstemp(prefix=".waiting-room-", dir=os.path.dirname(path))
+        fd, temporary = tempfile.mkstemp(prefix=".stay-awhile-", dir=os.path.dirname(path))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(settings, f, indent=2)
@@ -287,13 +320,16 @@ def cmd_install(args):
     if err:
         print(err, file=sys.stderr)
         return 1
+    settings, migrated = migrated_options(settings)
     action, entry, why = statusline_plan(settings)
-    if action == "keep":
+    if action == "keep" and not migrated:
         print(f"nothing to do: {why}")
         return 0
 
     print(f"{SETTINGS}")
     print(f"  {why}")
+    if migrated:
+        print("  copy missing Waiting Room options to Stay awhile (preserve existing choices)")
     print("  statusLine = " + json.dumps(entry, indent=2).replace("\n", "\n  "))
     print("\nnote: a configured status line replaces some of Claude Code's footer hints")
     print("      (esc to interrupt, ? for shortcuts).")
@@ -396,7 +432,7 @@ def cmd_open(args):
     if error:
         print(f"status line: {error}")
     elif statusline_plan(settings)[0] != "keep":
-        print("status line not configured; run /waiting-room:init for usage numbers")
+        print("status line not configured; run /stay-awhile:init for usage numbers")
     if not server_running() and cmd_start(args) != 0:
         return 1
     url = URL + ("?dev" if getattr(args, "dev", False) else "")

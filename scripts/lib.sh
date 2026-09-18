@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
+# Legacy names remain valid for existing launchers and isolated auditions.
+export STAY_AWHILE_SIMULATION="${STAY_AWHILE_SIMULATION:-${WAITING_ROOM_SIMULATION:-}}"
 # Shared helpers. Sourced by the hook scripts.
 # Every function here must be safe to call when no audio player exists.
 
 SOUNDS="${CLAUDE_PLUGIN_ROOT}/sounds"
 DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/waiting-room}"
+# A renamed plugin receives a new assigned directory. Reuse its predecessor's
+# published directory to preserve history, without moving live runtime files.
+if [ "${STAY_AWHILE_SIMULATION:-}" != 1 ]; then
+  case "$DATA" in
+    *stay-awhile*)
+      legacy_data="$(cat "$HOME/.claude/waiting-room/data-dir" 2>/dev/null)"
+      [ -n "$legacy_data" ] || { [ ! -f "$HOME/.claude/waiting-room/waits.log" ] || legacy_data="$HOME/.claude/waiting-room"; }
+      [ ! -d "$legacy_data" ] || DATA="$legacy_data" ;;
+  esac
+fi
 mkdir -p "$DATA/active" "$DATA/started" "$DATA/sessions" 2>/dev/null
 
 # Claude Code hands plugins their own data dir, but the status line runs from
 # the user's settings with no plugin environment and can't know where that is.
 # So publish it here, in the one place everything can agree on.
 POINTER="$HOME/.claude/waiting-room/data-dir"
-if [ "${WAITING_ROOM_SIMULATION:-}" != 1 ] && [ "$DATA" != "$HOME/.claude/waiting-room" ] &&
+if [ "${STAY_AWHILE_SIMULATION:-}" != 1 ] && [ "$DATA" != "$HOME/.claude/waiting-room" ] &&
    [ "$(cat "$POINTER" 2>/dev/null)" != "$DATA" ]; then
   mkdir -p "$HOME/.claude/waiting-room" 2>/dev/null
   printf '%s\n' "$DATA" > "$POINTER.$$" 2>/dev/null &&

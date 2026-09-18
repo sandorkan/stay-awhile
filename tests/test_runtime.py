@@ -24,13 +24,13 @@ spec.loader.exec_module(server)
 
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix='wr-tests-')
+        self.tmp = tempfile.TemporaryDirectory(prefix='sa-tests-')
         self.data = Path(self.tmp.name)
         self.addCleanup(self.tmp.cleanup)
 
     def env(self):
         return {**os.environ, 'CLAUDE_PLUGIN_ROOT': str(ROOT),
-                'CLAUDE_PLUGIN_DATA': str(self.data), 'WAITING_ROOM_SIMULATION': '1',
+                'CLAUDE_PLUGIN_DATA': str(self.data), 'STAY_AWHILE_SIMULATION': '1',
                 'CLAUDE_PLUGIN_OPTION_TRACK': 'none', 'CLAUDE_PLUGIN_OPTION_CUES': 'false',
                 'CLAUDE_PLUGIN_OPTION_EYE_CUE_EVERY': '0', 'CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN': ''}
 
@@ -174,7 +174,7 @@ printf() { builtin printf "$@"; }
 source "$CLAUDE_PLUGIN_ROOT/scripts/lib.sh"
 '''
         result = subprocess.run(['/bin/bash', '-c', script], env=self.env(), text=True, capture_output=True, check=True)
-        self.assertNotIn('.claude/waiting-room', result.stdout)
+        self.assertNotIn('.claude/stay-awhile', result.stdout)
 
 
 if __name__ == '__main__':
