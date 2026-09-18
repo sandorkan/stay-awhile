@@ -162,13 +162,16 @@ down rather than popular.
 ## Usage numbers (the status line)
 
 `scripts/statusline.sh` prints a compact row and saves the payload Claude Code
-hands it to `~/.claude/waiting-room/status.json`. That payload is the only
+hands it to `status.json` in the plugin’s data directory. That payload is the only
 local source for the numbers `/usage` shows — the 5-hour and weekly
 percentages and their reset times — which is what the visual viewer needs.
 
 ```
-1:35 · 5h 82% left · wk 54% left
+18% · 1:35 · wk 46%
 ```
+
+These are percentages **used**, followed by hours and minutes until the
+five-hour window resets. The weekly percentage also means used.
 
 **After installing the plugin, run `/waiting-room:init` once.** It shows what
 it would change, asks before touching your settings, and explains the trade.
@@ -185,13 +188,14 @@ python3 scripts/setup.py open       # start the server and open the viewer
 python3 scripts/setup.py stop
 ```
 
-Or add it to `settings.json` by hand:
+Or add it to `settings.json` by hand, substituting the actual installed plugin
+path printed by `python3 scripts/setup.py status`:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/plugins/waiting-room/scripts/statusline.sh",
+    "command": "\"/absolute/path/to/waiting-room/scripts/statusline.sh\"",
     "refreshInterval": 5
   }
 }
@@ -209,30 +213,61 @@ Two things worth knowing before you add it:
   session's first API response.** An empty row before then is correct, not a
   failure. Each window also disappears from the payload once it resets.
 
-**Already have a status line?** `/waiting-room` chains to it automatically. By
-hand, set `STATUSLINE_CHAIN` to it and its output is printed first, with the
+**Already have a status line?** `/waiting-room:init` offers to chain to it. By
+hand, set `CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN` to it and its output is printed first, with the
 usage segments appended:
 
 ```json
-"command": "CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN='~/.claude/my-statusline.sh' ~/.claude/plugins/waiting-room/scripts/statusline.sh"
+"command": "CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN='~/.claude/my-statusline.sh' \"/absolute/path/to/waiting-room/scripts/statusline.sh\""
 ```
 
 ## The viewer
 
 `scripts/viewer-server.py` serves `viewer/` on `127.0.0.1:8787` and streams
-state to the page as it changes, reading only files the plugin already wrote.
+state to the page as it changes. It reads hook/status data and maintains only
+its own server identity file.
 The scene shows your usage window as a sky: the sun rises when the window is
-fresh and sets as you spend it, so its height is how much you have left. When
-the window is spent the moon takes over, carrying the time until the reset. Wind and water move while a turn runs and settle when it ends; a flock
-lifts when a turn finishes. The strip along the bottom is today's turns —
-press `b` or use the corner toggle to hide it.
+fresh and moves toward sunset as you spend it. Its position along the arc
+represents the percentage used; the corner label shows the exact percentage.
+When the window is spent the moon takes over, carrying the time until reset.
+Wind and water move while a turn runs and settle when it ends or waits for input;
+a flock lifts when a turn completes. The strip along the bottom shows up
+to 120 of today's completed turns, using your computer's local date. Permission
+checkpoints stay in the log but don't count as additional turns in the strip.
+The strip is hidden initially; press `b` or use the corner toggle to show or
+hide it. Hover, tap, or use arrow keys on the bars for duration and outcome.
 
-**pop out ⧉** opens a floating always-on-top window (Chrome and Edge only).
-The page's tab has to stay open behind it.
+`/waiting-room:show` opens a small host window. Click **Open the window** to
+move the scene into a floating, always-on-top window (Chrome and Edge only).
+Keep the host open; it can be minimised. Closing the floating window returns
+to the launcher. On other browsers, add `?dev` to the URL to view the scene in
+the page instead.
+
+For development, `python3 scripts/setup.py open --dev` shows the scene and test
+controls, including **pop out ⧉** on supported browsers. Opening
+`viewer/scene.html` directly uses sample data instead of live data.
+
+The moon advances locally even while no new server events arrive. When a
+cached usage window expires, the viewer clears its percentage to a dash until
+fresh numbers arrive; it doesn't keep showing an expired “spent” window.
+Partial status updates preserve the last known values for each window until
+that window resets; a weekly-only update does not clear the five-hour display.
+
+The server stays available while another session is open, including between
+prompts. Session hooks register leases and the status line refreshes them.
+Leases older than two hours are ignored; after 30 minutes with no viewers or
+fresh session/activity leases, an abandoned server retires. A deliberate
+`/waiting-room:close` stops it earlier. Server ownership is checked before any
+process is signalled.
 
 ## How long are the waits, really
 
-Every turn appends one tab-separated line to `~/.claude/waiting-room/waits.log`.
+Completed turns append tab-separated rows to `waits.log` in the plugin's data
+directory; permission prompts append intermediate checkpoints too.
+Claude Code normally assigns this directory through `CLAUDE_PLUGIN_DATA`.
+`~/.claude/waiting-room/data-dir` points to it, and
+`python3 scripts/setup.py status` prints the resolved path. Without an assigned
+directory, the fallback is `~/.claude/waiting-room`.
 Counts and timings only: no prompt text, no file contents, no path beyond the
 project's folder name. Local file, goes nowhere, delete it whenever.
 
@@ -258,22 +293,36 @@ A turn stopped by a permission prompt logs a `needs-you` line and keeps
 counting, so you see both the stretch before the prompt and the whole turn.
 
 ```bash
-cd ~/.claude/waiting-room
+# Use the data directory printed by: python3 scripts/setup.py status
+cd /path/to/plugin-data
 
 # the shape of your day
-awk -F'\t' '{n++; s+=$2; if ($2>m) m=$2; if ($2>120) long++}
+awk -F'\t' '$3 != "needs-you" {n++; s+=$2; if ($2>m) m=$2; if ($2>120) long++}
   END {printf "%d turns, %.0f min waiting, mean %.0fs, longest %ds, %d over 2 min\n",
-       n, s/60, s/n, m, long}' waits.log
+       n, s/60, (n ? s/n : 0), m, long}' waits.log
 
 # mid-task switching: how often, and what you were leaving
-awk -F'\t' '$17==1 {n++; s+=$2} END {printf "%d switches, average turn %.0fs\n", n, s/n}' waits.log
+awk -F'\t' '$3 != "needs-you" && $17==1 {n++; s+=$2} END {printf "%d switches, average turn %.0fs\n", n, (n ? s/n : 0)}' waits.log
 
 # do longer prompts mean fewer corrections? (a turn re-prompted within 20s)
-awk -F'\t' 'NR>1 && $16<20 && $16>=0 {short[bucket]++} {bucket = ($5<25 ? "under 25 words" : "25+ words"); all[bucket]++}
+awk -F'\t' '$3 == "needs-you" {next} NR>1 && $16<20 && $16>=0 {short[bucket]++} {bucket = ($5<25 ? "under 25 words" : "25+ words"); all[bucket]++}
   END {for (b in all) printf "%-15s %d turns, %d quick re-prompts\n", b, all[b], short[b]}' waits.log
 ```
 
+## Choosing music
+
+`/waiting-room:music` opens a category/track menu, plays a short preview, and
+asks whether to keep it. Previews use a separate temporary directory and
+never redirect live status data or stop another session's audio. Keeping a
+track backs up `settings.json` and applies the choice from your next prompt.
+You can also run `python3 scripts/setup.py music list`, `music play <track>`,
+and `music set <track>` directly.
+
 ## Requirements
+
+The viewer and setup commands need Python 3. The floating window needs a
+browser with Document Picture-in-Picture support (Chrome or Edge); the regular
+`?dev` page works without that feature. `jq` is optional for the status line.
 
 An audio player on `PATH`: `afplay` (macOS), `paplay` or `aplay` (Linux),
 `ffplay` (anywhere), or PowerShell (Windows/WSL). With none of them the plugin

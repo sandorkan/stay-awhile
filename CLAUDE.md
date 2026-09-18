@@ -8,12 +8,18 @@ behaviour and options.
 
 - `scripts/simulate.sh [done|failed|needs-you] [seconds]` fires the hooks the
   way a turn would. Costs no tokens; use it before a real session.
-- For silent tests set `CLAUDE_PLUGIN_OPTION_VOLUME=0` and point
-  `CLAUDE_PLUGIN_DATA` at a scratch dir, so a test never touches a real
-  session's loop. Hooks read JSON on stdin: `echo '{"session_id":"A"}' | scripts/start.sh`.
+- For silent tests set `CLAUDE_PLUGIN_OPTION_VOLUME=0`,
+  `WAITING_ROOM_SIMULATION=1`, and `CLAUDE_PLUGIN_DATA` to a scratch dir.
+  Simulation mode suppresses publication of the shared data-directory pointer.
+  `simulate.sh` always creates its own temporary data directory, even if it
+  inherits `CLAUDE_PLUGIN_DATA`. Hooks read JSON on stdin: `echo '{"session_id":"A"}' | scripts/start.sh`.
 - Run test scripts with `/bin/bash`, not zsh: `set -m` behaves differently.
 - Only a real session verifies hook wiring (which events fire when). Cheapest:
   `claude --plugin-dir . --model haiku`, then ask it to run `sleep 10 && false`.
+
+- Regression checks: `python3 -m unittest discover -s tests -v` and
+  `node tests/viewer.cjs`. These use temporary data and DOM mocks; they do not
+  replace a real Claude session or a browser PiP smoke test.
 
 ## Hook scripts
 
@@ -23,7 +29,13 @@ behaviour and options.
 - macOS has no `setsid`; `detach` uses `set -m` for a process group instead.
 - Loops on macOS use AVAudioPlayer via `osascript`, not repeated `afplay` —
   restarting afplay leaves a ~0.5s gap at every loop point.
-- Only kill PIDs that pass `ours` (command line contains the plugin path).
+- Only kill audio PIDs that pass `ours` (command line contains the plugin path).
+  Each fade watchdog owns `loop.stop.<PID>` and must never delete `loop.pid`.
+- `session.sh` registers SessionStart; prompts and the status line refresh
+  `sessions/<sid>`. SessionEnd removes it. `active/` means working, while
+  `started/` also includes permission-paused turns; do not interchange them.
+- Server PID records include process start time and command. Never signal an
+  unverified or legacy bare PID; refuse safely if ownership can't be established.
 
 ## Wait logging
 
@@ -55,22 +67,32 @@ behaviour and options.
   Measured ~25ms per run with jq present; it falls back to sed without jq.
 - `$DATA/ran-out` records when the 5-hour window first hit 100%. The payload
   only gives the current level, and the viewer's moon needs a rise time.
+  Each window is cached independently in `limits-<window>.json`, so partial
+  payloads cannot erase another window. Cached windows expire at `resets_at`; a missing payload is not proof that
+  an old, already-expired limit is still current.
 - Configured by the user in settings.json, not shipped by the plugin, so it
   can chain to an existing status line instead of replacing it.
 
 ## Viewer
 
 - `scripts/setup.py` owns anything that touches the user's settings.json. It
-  is dry-run by default; `--apply` writes, after a timestamped backup, and it
+  Its `install` command is dry-run by default; `--apply` writes after a backup and
   chains to an existing statusLine instead of replacing it.
-- `commands/` holds three slash commands: `init` (one-time status-line setup,
-  must ask before applying), `show` (start the server, open the window) and
-  `close`. Keep them thin: the logic belongs in setup.py, and `show` relays
+- `commands/` holds four slash commands: `init` (one-time status-line setup,
+  must ask before applying), `show` (start the server, open the window),
+  `close` and `music` (audition and choose a loop). Keep them thin: logic belongs
+  in setup.py, and `show` relays
   setup.py's printed explanation rather than writing its own — a model
   paraphrasing it has produced wrong descriptions.
-- `scripts/viewer-server.py` reads the plugin's files and never writes them.
+- `scripts/viewer-server.py` reads hook-owned data without modifying it. It
+  only writes and cleans up its own `server.pid` identity record.
   It sends the turn's start time, not a clock, so the SSE stream stays quiet
-  until something real changes.
+  until something real changes. The moon and reset countdown advance locally.
+- The strip uses the local date and excludes `needs-you` checkpoints; it shows
+  at most the latest 120 completed turns. The raw log keeps every checkpoint.
+- PiP moves the scene DOM into another document. Capture references before
+  adoption; don't look up moved nodes through the host document or use implicit
+  named window globals. Test updates and toggling after adoption, too.
 - The page runs from file:// too (sample data, controls) — that's how to work
   on the scene without a server. Headless Chrome can't screenshot it while an
   SSE connection is open; use file:// for rendering checks.

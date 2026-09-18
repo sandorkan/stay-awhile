@@ -26,12 +26,6 @@ mkdir -p "$DATA" 2>/dev/null
 tmp="$DATA/.status.$$"
 if printf '%s' "$INPUT" > "$tmp" 2>/dev/null; then
   mv -f "$tmp" "$DATA/status.json" 2>/dev/null
-  # Keep the last payload that actually carried rate_limits: they're missing
-  # before a session's first API response, and a window disappears once it
-  # resets. Without this the viewer would blank out whenever that happened.
-  case "$INPUT" in
-    *'"rate_limits"'*) cp -f "$DATA/status.json" "$DATA/limits.json" 2>/dev/null ;;
-  esac
 else rm -f "$tmp" 2>/dev/null; fi
 
 # field <jq path> <sed script>  — jq when it's there, sed when it isn't.
@@ -50,13 +44,46 @@ RESETS="$(field '.rate_limits.five_hour.resets_at' \
   's/.*"five_hour"[^}]*"resets_at"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p')"
 SID="$(field '.session_id' 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | tr -cd 'A-Za-z0-9_-')"
 
-# The moon needs to know when the window ran out; the payload only says what the
-# level is now, so catch the moment it hits the ceiling.
+# Keep only payloads with actual window data, and replace the cache atomically.
+# Null/empty rate_limits from a new session must not erase a still-valid cache.
+if [ -n "$FIVE$WEEK" ]; then
+  limits_tmp="$DATA/.limits.$$"
+  printf '%s' "$INPUT" > "$limits_tmp" 2>/dev/null &&
+    mv -f "$limits_tmp" "$DATA/limits.json" 2>/dev/null
+fi
+
+# Cache windows independently: weekly-only updates must not erase five-hour
+# data. Separate atomic files also avoid read/merge/write races across sessions.
+cache_window() {
+  [ -n "$2" ] || return 0
+  local window_tmp="$DATA/.limits-$1.$$"
+  printf '%s' "$INPUT" > "$window_tmp" 2>/dev/null &&
+    mv -f "$window_tmp" "$DATA/limits-$1.json" 2>/dev/null
+}
+cache_window five_hour "$FIVE"
+cache_window seven_day "$WEEK"
+cache_window spend_limit "$(pct_of spend_limit)"
+
+# Refresh the open-session lease even while no turn is running.
+if [ -n "$SID" ] && [ "${WAITING_ROOM_SIMULATION:-}" != 1 ]; then
+  mkdir -p "$DATA/sessions" 2>/dev/null
+  touch "$DATA/sessions/$SID" 2>/dev/null
+fi
+
+# Capture genuine exhaustion; clear it when usage drops or the reset passes.
 case "$FIVE" in
-  ''|*[!0-9.]*) ;;
-  *) if [ "${FIVE%%.*}" -ge 99 ] 2>/dev/null; then
-       [ -f "$DATA/ran-out" ] || date +%s > "$DATA/ran-out" 2>/dev/null
-     else rm -f "$DATA/ran-out" 2>/dev/null; fi ;;
+  ''|*[!0-9.]*)
+    if [ -n "$RESETS" ] && [ "$RESETS" -le "$(date +%s)" ] 2>/dev/null; then
+      rm -f "$DATA/ran-out" "$DATA/ran-out-reset" 2>/dev/null
+    fi ;;
+  *) if [ "${FIVE%%.*}" -ge 100 ] 2>/dev/null &&
+        { [ -z "$RESETS" ] || [ "$RESETS" -gt "$(date +%s)" ] 2>/dev/null; }; then
+       if [ ! -f "$DATA/ran-out" ] ||
+          [ "$(cat "$DATA/ran-out-reset" 2>/dev/null)" != "$RESETS" ]; then
+         date +%s > "$DATA/ran-out" 2>/dev/null
+         printf '%s' "$RESETS" > "$DATA/ran-out-reset" 2>/dev/null
+       fi
+     else rm -f "$DATA/ran-out" "$DATA/ran-out-reset" 2>/dev/null; fi ;;
 esac
 
 # --- the row itself ---------------------------------------------------------

@@ -20,6 +20,7 @@ if [ "$CUE" = "session-end" ]; then ENDING=1; CUE=silent; fi
 INPUT="$(cat)"
 SID="$(printf '%s' "$INPUT" | session_id)"
 rm -f "$ACTIVE/$SID"
+[ -n "$ENDING" ] && rm -f "$SESSIONS/$SID"
 
 [ "$CUE" = "needs-you" ] && count_bump "$(perm_count "$SID")"
 wait_end "$SID" "$CUE" \
@@ -35,9 +36,9 @@ if [ "$CUE" != "silent" ] && [ "$CUES" != "false" ]; then
   play_once "$CUE"
 fi
 
-# The viewer belongs to whoever is still working; stop it when nobody is.
-if [ -n "$ENDING" ] && ! any_active && command -v python3 >/dev/null 2>&1; then
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" stop >/dev/null 2>&1 &
+# Recheck open-session leases in the setup tool, including idle sessions.
+if [ -n "$ENDING" ] && command -v python3 >/dev/null 2>&1; then
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" stop --if-idle </dev/null >/dev/null 2>&1 &
 fi
 
 exit 0

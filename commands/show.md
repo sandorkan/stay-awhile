@@ -13,7 +13,7 @@ explanation of how to use it.
 re-order it: it's written to be read directly, and rewording it has produced
 wrong descriptions before.
 
-If the output says the status line isn't configured, tell them to run
+If the output says the status line is not configured, tell them to run
 `/waiting-room:init` first — without it the scene runs, but with no usage
 numbers.
 

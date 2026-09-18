@@ -10,7 +10,11 @@
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export CLAUDE_PLUGIN_ROOT="$ROOT"
 # Own state dir, so a simulation never stops a real session's loop.
-export CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}/waiting-room-sim}"
+export WAITING_ROOM_SIMULATION=1
+# Never inherit a real session's data directory, including during music auditions.
+export CLAUDE_PLUGIN_DATA="$(mktemp -d "${TMPDIR:-/tmp}/waiting-room-sim.XXXXXX")" || exit 1
+# Leave the temporary directory for the asynchronous fade watchdog; it contains
+# no published pointer and can be removed by normal temporary-file cleanup.
 
 END="${1:-done}"
 SECS="${2:-8}"

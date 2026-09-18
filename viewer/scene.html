@@ -106,6 +106,11 @@ settles when idle, birds lift when a turn finishes (and sometimes on their own),
 window reset is a sunrise. Clouds always drift, occasional rings spread across the lake, and fireflies glow near the reeds at dusk.</p>
 
 <script>
+// Hold references before the frame is adopted by the picture-in-picture
+// document. Named window globals and parent-document lookups stop working there.
+const hudL=document.getElementById('hudL'), hudR=document.getElementById('hudR');
+const dayCount=document.getElementById('dayCount');
+const stripToggle=document.getElementById('stripToggle');
 // ---------------------------------------------------------------- palettes
 const MOODS = {
   dawn: {
@@ -688,15 +693,19 @@ function rebuildTurns(turns) {
   if (turns.length === world.day.length && turns.length &&
       turns[turns.length - 1].ended === world.day[world.day.length - 1]?.ended) return;
   world.day = turns;
+  const focused = turnBars.ownerDocument.activeElement;
+  const selected = turnButtons.indexOf(focused);
+  turnTooltip.hidden = true;
   turnBars.textContent = '';
   turnButtons.length = 0;
   turns.forEach((turn, i) => turnButtons.push(makeTurnBar(turn, i)));
   turnBars.style.setProperty('--turn-count', Math.max(1, turns.length));
-  document.getElementById('dayCount').textContent = `${turns.length} turns`;
+  dayCount.textContent = `${turns.length} turns`;
+  if (selected >= 0 && turns.length) selectTurn(Math.min(selected,turns.length-1));
 }
 
 turnBars.style.setProperty('--turn-count',Math.max(1,world.day.length));
-document.getElementById('dayCount').textContent=`${world.day.length} turns`;
+dayCount.textContent=`${world.day.length} turns`;
 
 // ---------------------------------------------------------------- live data
 // Served by scripts/viewer-server.py, which reads what the plugin already
@@ -707,8 +716,9 @@ const LIVE = location.protocol.startsWith('http');
 // is only a host for the floating window.
 const DEV = /(^|[?&#])dev\b/.test(location.search + location.hash);
 const HOST = LIVE && !DEV;
-const liveHud = { usage: '', resetsAt: null };   // the slow half; clocks tick beside it
+const liveHud = { usage: '', resetsAt: null, five: null, seven: null, ranOut: null };   // the slow half; clocks tick beside it
 function paintHud() {
+  updateLiveWindow();
   const parts = [];
   if (liveHud.usage) parts.push(liveHud.usage);
   if (liveHud.resetsAt) {
@@ -718,41 +728,48 @@ function paintHud() {
   setHud(hudL, parts.join(' · '));
 }
 let seenState = false;
+let lastCompletedTurn = null;
+let closingViewer = false;
 
-function applyLive(d) {
-  // usage drives the sun; a spent window (or an explicit ran-out) brings night
-  const five = d.five_hour;
-  if (five && typeof five.used === 'number') {
-    state.used = clamp(five.used / 100, 0, 1);
-    const spent = five.used >= 99.5 || d.ran_out_at != null;
+function updateLiveWindow(now = Date.now()/1000) {
+  const valid = w => w && typeof w.used === 'number' && Number.isFinite(w.used)
+    && (!w.resets_at || w.resets_at > now);
+  const five = valid(liveHud.five) ? liveHud.five : null;
+  const seven = valid(liveHud.seven) ? liveHud.seven : null;
+  const spent = five && five.used >= 100;
+  if (!state.seq) {
+    state.used = five ? clamp(five.used/100,0,1) : 0;
     state.nightAmt = spent ? 1 : 0;
     if (spent && five.resets_at) {
-      // the moon carries the time left: it rises when the window ran out and
-      // sets exactly at the reset
-      const ranOut = d.ran_out_at || (five.resets_at - 5 * 3600);
-      const span = Math.max(60, five.resets_at - ranOut);
-      state.moonF = clamp((Date.now() / 1000 - ranOut) / span, 0, 1);
+      const ranOut = liveHud.ranOut || (five.resets_at - 5*3600);
+      state.moonF = clamp((now-ranOut)/Math.max(60,five.resets_at-ranOut),0,1);
     }
   }
+  liveHud.usage = five ? (spent ? 'spent' : `${Math.round(five.used)}%`) : '—';
+  liveHud.resetsAt = five ? five.resets_at : null;
+  setHud(hudR, seven ? `wk ${Math.round(seven.used)}%` : '');
+}
+
+function applyLive(d) {
+  liveHud.five = d.five_hour;
+  liveHud.seven = d.seven_day;
+  liveHud.ranOut = d.ran_out_at;
+  updateLiveWindow();
   if (!state.seq) {                 // a reset animation owns the scene while it plays
-    const wasRunning = state.running;
     state.running = !!d.running;
-    // a turn just ended: the flock lifts, which is the whole point of the birds
-    if (seenState && wasRunning && !state.running) spawnBirds(performance.now());
     $('bRun') && $('bRun').classList.toggle('on', state.running);
   }
+  // A permission pause is idle too, but only a newly completed turn sends
+  // birds. This also handles one turn finishing while another keeps working.
+  const completed = Array.isArray(d.turns) ? d.turns[d.turns.length-1] : null;
+  const completedKey = completed ? JSON.stringify([completed.ended,completed.session,completed.sec,completed.outcome]) : null;
+  if (seenState && completedKey && completedKey !== lastCompletedTurn) spawnBirds(performance.now());
+  lastCompletedTurn = completedKey;
   seenState = true;                 // the first snapshot is a starting position, not an event
 
   if (Array.isArray(d.turns)) rebuildTurns(d.turns);   // empty is a real answer: no turns yet
 
-  const hud = [];
-  if (five) hud.push(state.nightAmt > .5 ? 'spent' : `${Math.round(five.used)}%`);
-  else hud.push('—');               // Pro/Max only, and only after the first API response
-  liveHud.resetsAt = five && five.resets_at ? five.resets_at : null;
-
-  liveHud.usage = hud.join(' · ');
   paintHud();
-  setHud(hudR, d.seven_day ? `wk ${Math.round(d.seven_day.used)}%` : '');
 }
 
 const setHud = (el, text) => { if (el.textContent !== text) el.textContent = text; };
@@ -763,6 +780,7 @@ if (LIVE) {
   // the window goes with it. A silent drop (a kill, a crash) closes too, after
   // a moment's grace in case it's only a restart.
   function closeViewer() {
+    closingViewer = true;
     es.close();
     if (pipWindow) pipWindow.close();
     window.close();                  // only works on a window a script opened
@@ -811,6 +829,7 @@ function tick(now) {
 
   if(state.nextRingAt===null) state.nextRingAt=T+45000+Math.random()*45000;
   if(!reducedMotion.matches && T>=state.nextRingAt) spawnLakeRings(T);
+  if (LIVE) updateLiveWindow();
   render(reducedMotion.matches ? 0 : T,T);
   document.getElementById('sUse').value = Math.round(state.used * 100);
   document.getElementById('useOut').textContent = `${Math.round(state.used * 100)}%`;
@@ -867,13 +886,13 @@ try { stripShown = localStorage.getItem('wr-strip-2') === 'on'; } catch (e) {}
 function setStrip(on) {
   stripShown = on;
   dayStrip.hidden = !on;
-  const toggle = document.getElementById('stripToggle');
+  const toggle = stripToggle;
   toggle.textContent = on ? '▁' : '▔';
   toggle.setAttribute('aria-pressed', String(on));
   try { localStorage.setItem('wr-strip-2', on ? 'on' : 'off'); } catch (e) {}
 }
 setStrip(stripShown);
-document.getElementById('stripToggle').onclick = () => setStrip(!stripShown);
+stripToggle.onclick = () => setStrip(!stripShown);
 const stripKey = e => { if (e.key === 'b' && !e.metaKey && !e.ctrlKey) setStrip(!stripShown); };
 document.addEventListener('keydown', stripKey);
 
@@ -909,10 +928,11 @@ if (HOST) {
     }).catch(() => { hint.textContent = 'The window did not open — try clicking again.'; });
   }
   onPipClosed(() => {
+    if (closingViewer) return;
     document.body.classList.remove('popped');
     msg.textContent = 'Waiting Room runs in a small window that floats above your terminal.';
     btn.textContent = 'Open the window';
-    btn.onclick = () => $('bLaunch').click();   // rebound below on next open
+    btn.onclick = null; // reload below reinstalls the launcher
     hint.textContent = 'Chrome and Edge only. This window can be minimised afterwards.';
     location.reload();                           // simplest way back to a clean host
   });

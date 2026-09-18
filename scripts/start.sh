@@ -15,7 +15,7 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh" 2>/dev/null || exit 0
 # Hook JSON arrives on stdin and can only be read once.
 INPUT="$(cat)"
 SID="$(printf '%s' "$INPUT" | session_id)"
-touch "$ACTIVE/$SID" 2>/dev/null
+touch "$SESSIONS/$SID" "$ACTIVE/$SID" 2>/dev/null
 
 if [ "$1" = "resume" ]; then
   count_bump "$(tool_count "$SID")"  # one tool call done; the turn carries on

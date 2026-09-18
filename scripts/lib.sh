@@ -4,16 +4,17 @@
 
 SOUNDS="${CLAUDE_PLUGIN_ROOT}/sounds"
 DATA="${CLAUDE_PLUGIN_DATA:-$HOME/.claude/waiting-room}"
-mkdir -p "$DATA/active" "$DATA/started" 2>/dev/null
+mkdir -p "$DATA/active" "$DATA/started" "$DATA/sessions" 2>/dev/null
 
 # Claude Code hands plugins their own data dir, but the status line runs from
 # the user's settings with no plugin environment and can't know where that is.
 # So publish it here, in the one place everything can agree on.
 POINTER="$HOME/.claude/waiting-room/data-dir"
-if [ "$DATA" != "$HOME/.claude/waiting-room" ] &&
+if [ "${WAITING_ROOM_SIMULATION:-}" != 1 ] && [ "$DATA" != "$HOME/.claude/waiting-room" ] &&
    [ "$(cat "$POINTER" 2>/dev/null)" != "$DATA" ]; then
   mkdir -p "$HOME/.claude/waiting-room" 2>/dev/null
-  printf '%s\n' "$DATA" > "$POINTER" 2>/dev/null
+  printf '%s\n' "$DATA" > "$POINTER.$$" 2>/dev/null &&
+    mv -f "$POINTER.$$" "$POINTER" 2>/dev/null
 fi
 
 VOLUME="${CLAUDE_PLUGIN_OPTION_VOLUME:-0.4}"
@@ -24,12 +25,13 @@ CUES="${CLAUDE_PLUGIN_OPTION_CUES:-true}"
 # when the last marker goes.
 ACTIVE="$DATA/active"
 STARTED="$DATA/started"
+SESSIONS="$DATA/sessions"
 WAITS="$DATA/waits.log"
 CURRENT="$DATA/current-track"
 LOOP_PID="$DATA/loop.pid"
 EYE_PID="$DATA/eye.pid"
 COUNT_FILE="$DATA/eye.count"
-STOP_FILE="$DATA/loop.stop"   # its presence asks the player to fade out
+STOP_FILE="$DATA/loop.stop"   # each player watches loop.stop.<its PID>
 
 # --- player detection -------------------------------------------------------
 
@@ -258,12 +260,11 @@ loop_alive() { ours "$(cat "$LOOP_PID" 2>/dev/null)"; }
 # never waits: the player exits on its own, and a watchdog cleans up after it.
 stop_loop() {
   if [ "$PLAYER" = "afplay" ] && loop_alive; then
-    : > "$STOP_FILE" 2>/dev/null
     local pid
     pid="$(cat "$LOOP_PID" 2>/dev/null)"
-    detach "$DATA/fade.pid" bash -c \
-      'sleep 2; kill -- -"$0" 2>/dev/null; rm -f "$1" "$2" 2>/dev/null' \
-      "$pid" "$LOOP_PID" "$STOP_FILE"
+    [ -f "$STOP_FILE.$pid" ] && return 0
+    : > "$STOP_FILE.$pid" 2>/dev/null
+    detach "$DATA/fade.$pid.pid" bash "${CLAUDE_PLUGIN_ROOT}/scripts/fade-cleanup.sh" "$pid"
   else
     kill_pidfile "$LOOP_PID"
   fi
@@ -277,7 +278,7 @@ start_loop() {
   [ -f "$SOUNDS/$track.wav" ] || return 0
   [ "$PLAYER" = "none" ] && return 0
   if loop_alive; then
-    [ -f "$STOP_FILE" ] || return 0   # already playing; leave it alone
+    [ -f "$STOP_FILE.$(cat "$LOOP_PID" 2>/dev/null)" ] || return 0   # already playing; leave it alone
     kill_pidfile "$LOOP_PID"        # it's fading out: start again cleanly
   fi
   local f="$SOUNDS/$track.wav"
@@ -285,7 +286,6 @@ start_loop() {
     # Restarting a player per pass leaves a gap (~0.5s for afplay) and a hard
     # restart, so use a player that loops the file itself where there is one.
     afplay)
-      rm -f "$STOP_FILE" 2>/dev/null
       detach "$LOOP_PID" osascript -l JavaScript -e '
         function run(argv) {
           ObjC.import("AVFoundation");
@@ -296,7 +296,7 @@ start_loop() {
           p.play;
           // Being killed mid-note is a hard cut. Watch for the stop file
           // instead and fade out, which AVAudioPlayer does for us.
-          var fm = $.NSFileManager.defaultManager, stop = argv[2], fade = 0.9;
+          var fm = $.NSFileManager.defaultManager, stop = argv[2] + "." + $.NSProcessInfo.processInfo.processIdentifier, fade = 0.9;
           var run = $.NSRunLoop.currentRunLoop;
           while (true) {
             run.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(0.1));

@@ -8,7 +8,7 @@ Routes:
     /state       one JSON snapshot (handy for curl)
     /events      the same snapshot pushed on change (server-sent events)
 
-Reads, never writes:
+Reads (only its own server.pid identity record is written):
     status.json     the status line's payload — the real rate-limit numbers
     ran-out         when the 5-hour window hit 100%, for the moon's rise
     started/<sid>   a turn in flight: "<epoch> <concurrent> <think>"
@@ -16,11 +16,13 @@ Reads, never writes:
     current-track   the loop playing right now
     waits.log       one line per finished turn, for the day strip
 
-Pure stdlib, localhost only. Nothing here talks to the network.
+Pure stdlib, loopback only. No external network requests.
 """
 
 import argparse
 import json
+import math
+from datetime import datetime
 import signal
 import os
 import socketserver
@@ -29,6 +31,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from runtime import fresh_markers, write_server_record, remove_server_record
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VIEWER = os.path.join(HERE, os.pardir, "viewer")
@@ -63,37 +66,48 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
 # ----------------------------------------------------------------- reading state
 
 def _num(value):
-    return value if isinstance(value, (int, float)) else None
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else None
 
 
-def read_window(limits, name):
+def read_window(limits, name, now=None):
     w = (limits or {}).get(name) or {}
     used, resets = _num(w.get("used_percentage")), _num(w.get("resets_at"))
+    now = time.time() if now is None else now
+    if resets is not None and resets <= now:
+        return None
     return {"used": used, "resets_at": resets} if used is not None else None
 
 
-def read_turns(path):
-    """The tail of waits.log as [{sec, outcome, switched}], oldest first."""
+def read_turns(path, now=None):
+    """Latest completed turns from the local calendar day, oldest first."""
+    today = datetime.fromtimestamp(time.time() if now is None else now).astimezone().date()
     try:
         with open(path, "rb") as f:
             f.seek(0, 2)
-            f.seek(max(0, f.tell() - 64 * 1024))
+            offset = max(0, f.tell() - 64 * 1024)
+            f.seek(offset)
+            if offset:
+                f.readline()  # discard a possibly partial first record
             lines = f.read().decode("utf-8", "replace").splitlines()
     except OSError:
         return []
     out = []
-    for line in lines[-TAIL_TURNS:]:
+    for line in lines:
         c = line.split("\t")
         if len(c) < 4:
             continue
         try:
             sec = float(c[1])
+            ended = datetime.fromisoformat(c[0]).astimezone()
+            if (ended.date() != today or c[2] == "needs-you"
+                    or not math.isfinite(sec) or sec < 0):
+                continue
         except ValueError:
             continue
-        out.append({"ended": c[0], "sec": sec, "outcome": c[2],
+        out.append({"ended": c[0], "session": c[3], "sec": sec, "outcome": c[2],
                     "switched": len(c) >= 17 and c[16] == "1",
                     "project": c[18] if len(c) >= 19 else ""})
-    return out
+    return out[-TAIL_TURNS:]
 
 
 def read_state(data):
@@ -105,17 +119,26 @@ def read_state(data):
     except (OSError, ValueError):
         pass
 
-    limits = status.get("rate_limits") or {}
-    if not limits:
-        # the newest payload had none; fall back to the last one that did
-        try:
-            with open(os.path.join(data, "limits.json"), encoding="utf-8") as f:
-                limits = (json.load(f) or {}).get("rate_limits") or {}
-        except (OSError, ValueError):
-            pass
+    limits = dict(status.get("rate_limits") or {})
+    for name in ("five_hour", "seven_day", "spend_limit"):
+        # An explicit numeric reading wins, including an expired one. Missing
+        # windows may use their own cache, but never beyond its original reset.
+        if _num((limits.get(name) or {}).get("used_percentage")) is not None:
+            continue
+        for filename in (f"limits-{name}.json", "limits.json"):
+            try:
+                with open(os.path.join(data, filename), encoding="utf-8") as f:
+                    cached = (json.load(f) or {}).get("rate_limits") or {}
+                window = cached.get(name) or {}
+                if _num(window.get("used_percentage")) is not None:
+                    limits[name] = window
+                    break
+            except (OSError, ValueError):
+                pass
+    active = set(fresh_markers(data, "active", now))
     turns, started = [], []
     try:
-        for name in os.listdir(os.path.join(data, "started")):
+        for name in active:
             try:
                 with open(os.path.join(data, "started", name), encoding="utf-8") as f:
                     began = int(f.read().split()[0])
@@ -140,20 +163,23 @@ def read_state(data):
     except OSError:
         pass
 
-    turns = read_turns(os.path.join(data, "waits.log"))
+    turns = read_turns(os.path.join(data, "waits.log"), now)
+    five = read_window(limits, "five_hour", now)
+    if not five or five["used"] < 100:
+        ran_out = None
     return {
         # No wall clock and no elapsed counter in here: they would change every
         # second and defeat the "push only when something changed" check. The
         # page ticks its own clock from started_at.
-        "five_hour": read_window(limits, "five_hour"),
-        "seven_day": read_window(limits, "seven_day"),
-        "spend_limit": read_window(limits, "spend_limit"),
+        "five_hour": five,
+        "seven_day": read_window(limits, "seven_day", now),
+        "spend_limit": read_window(limits, "spend_limit", now),
         "cost": (status.get("cost") or {}).get("total_cost_usd"),
         "ran_out_at": ran_out,
         # a turn is in flight; the newest one is the one you're watching
-        "running": bool(started),
+        "running": bool(active),
         "started_at": started[0]["began"] if started else None,
-        "concurrent": len(started),
+        "concurrent": len(active),
         "track": track,
         "turns": turns,
     }
@@ -241,6 +267,11 @@ def main():
     except OSError as e:
         sys.exit(f"can't listen on 127.0.0.1:{args.port}: {e}")
     server.daemon_threads = True
+    record = write_server_record(args.data, os.path.abspath(__file__))
+
+    def retire():
+        remove_server_record(args.data, record)
+        os._exit(0)
 
     url = f"http://127.0.0.1:{args.port}/"
     print(f"waiting-room viewer on {url}  (data: {args.data})")
@@ -254,25 +285,28 @@ def main():
         alone_since = time.time()
         while True:
             time.sleep(30)
-            active = os.path.join(args.data, "active")
-            busy = Handler.viewers > 0 or (os.path.isdir(active) and os.listdir(active))
+            busy = (Handler.viewers > 0 or fresh_markers(args.data, "active")
+                    or fresh_markers(args.data, "sessions"))
             if busy:
                 alone_since = time.time()
             elif time.time() - alone_since > IDLE_EXIT_SECONDS:
                 print("idle for 30 minutes with nothing to show — stopping")
-                os._exit(0)
+                retire()
 
     threading.Thread(target=idle_watch, daemon=True).start()
 
     def goodbye(_sig, _frame):
         STOPPING.set()
-        threading.Timer(0.4, lambda: os._exit(0)).start()   # let the streams flush
+        threading.Timer(0.4, retire).start()   # let the streams flush
 
     signal.signal(signal.SIGTERM, goodbye)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        remove_server_record(args.data, record)
+        server.server_close()
 
 
 if __name__ == "__main__":

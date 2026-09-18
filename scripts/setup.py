@@ -17,11 +17,13 @@ import argparse
 import json
 import os
 import shutil
+import shlex
 import socket
 import subprocess
 import sys
 import time
 from datetime import datetime
+from runtime import fresh_markers, read_server_record, owns_server, remove_server_record
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -75,12 +77,12 @@ def statusline_plan(settings):
     current = settings.get("statusLine")
     if isinstance(current, dict) and STATUSLINE in str(current.get("command", "")):
         return "keep", current, "status line already points at Waiting Room"
-    entry = {"type": "command", "command": STATUSLINE, "refreshInterval": 5}
+    entry = {"type": "command", "command": shlex.quote(STATUSLINE), "refreshInterval": 5}
     if not current:
         return "add", entry, "no status line configured — add Waiting Room's"
     existing = current.get("command", "") if isinstance(current, dict) else str(current)
-    entry["command"] = (f"CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN={json.dumps(existing)} "
-                        f"{STATUSLINE}")
+    entry["command"] = (f"CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN={shlex.quote(existing)} "
+                        f"{shlex.quote(STATUSLINE)}")
     return "chain", entry, f"keep your status line ({existing}) and append the usage segments"
 
 
@@ -251,35 +253,33 @@ def cmd_start(_):
     for _ in range(20):
         time.sleep(0.1)
         if server_running():
-            with open(os.path.join(DATA, "server.pid"), "w") as f:
-                f.write(str(proc.pid))
             print(f"viewer on {URL}  (pid {proc.pid})")
             return 0
     print("server didn't come up; see viewer-server.log", file=sys.stderr)
     return 1
 
 
-def cmd_stop(_):
-    # Look in both places: a server started before the data-dir pointer existed
-    # left its pidfile under the default home.
+def cmd_stop(args):
+    # SessionEnd must leave the viewer up for sessions between prompts, too.
+    directories = {DATA, DEFAULT_HOME}
+    if getattr(args, 'if_idle', False) and any(
+            fresh_markers(d, 'sessions') or fresh_markers(d, 'active') for d in directories):
+        print("sessions are still open; leaving the viewer running")
+        return 0
     stopped = []
-    for d in {DATA, DEFAULT_HOME}:
-        pidfile = os.path.join(d, "server.pid")
-        try:
-            with open(pidfile) as f:
-                pid = int(f.read().strip())
-            os.kill(pid, 15)
-            stopped.append(pid)
-        except (OSError, ValueError):
-            pass
-        try:
-            os.remove(pidfile)
-        except OSError:
-            pass
+    for d in directories:
+        record = read_server_record(d)
+        if owns_server(record, SERVER):
+            try:
+                os.kill(record['pid'], 15)
+                stopped.append(record['pid'])
+            except ProcessLookupError:
+                pass
+        remove_server_record(d, record)
     if stopped:
         print("stopped " + ", ".join(f"pid {p}" for p in stopped))
     elif server_running():
-        print(f"something is listening on {PORT} that we didn't start; stop it yourself")
+        print(f"something is listening on {PORT} without a matching server identity; stop it yourself")
     else:
         print("no server running")
     return 0
@@ -293,7 +293,7 @@ Click "Open the window" to get a small window that floats above your terminal
 once the floating one is up, and close the floating one to bring the scene back.
 
 How to read it
-  The sun is this session's usage window: it rises at 0% used and sets as you
+  The sun is your account's usage window: it rises at 0% used and sets as you
   approach 100%. Once the window is spent the moon takes over, carrying the
   time until the reset.
   Water and trees move while a turn is running and settle when it ends; birds
@@ -317,6 +317,11 @@ CHROMES = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 def cmd_open(args):
     """Open the viewer. In app mode where we can: a small chromeless window is a
     better host for the floating scene than a tab in your main browser."""
+    settings, error = load_settings()
+    if error:
+        print(f"status line: {error}")
+    elif statusline_plan(settings)[0] != "keep":
+        print("status line not configured; run /waiting-room:init for usage numbers")
     if not server_running() and cmd_start(args) != 0:
         return 1
     url = URL + ("?dev" if getattr(args, "dev", False) else "")
@@ -341,7 +346,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("status")
     p = sub.add_parser("install"); p.add_argument("--apply", action="store_true")
-    sub.add_parser("start"); sub.add_parser("stop")
+    sub.add_parser("start")
+    stop = sub.add_parser("stop"); stop.add_argument("--if-idle", action="store_true")
     o = sub.add_parser("open"); o.add_argument("--dev", action="store_true",
                                                help="the full page with controls")
     m = sub.add_parser("music")
