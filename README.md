@@ -268,7 +268,10 @@ It shares the usage cycle and stars, without water effects or fireflies.
 
 **Music** lists tracks by category, with shuffle options and **Off**.
 Selections save automatically to Claude's user plugin settings, sharing the
-same preference as `/config` and `/stay-awhile:music`. The current loop keeps
+same preference as `/config` and `/stay-awhile:music`. **Volume** is a
+slider that saves the `volume` option the same way; it applies from the next
+turn, and the loop that is already playing keeps its level. Laptop speakers
+often need more than the 0.4 default. The current loop keeps
 playing; each new prompt reads the saved preference directly, so the choice
 applies when a new loop starts without restarting Claude. A permission-pause
 resume keeps that turn's original track. Reopening the panel reads the latest saved choice. **Show turn

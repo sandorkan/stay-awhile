@@ -215,11 +215,37 @@ MUSIC_LOCK = threading.Lock()
 DEFAULT_TRACK = "breathing/4-6-calm"
 
 
+DEFAULT_VOLUME = 0.4
+
+
+def parse_volume(value):
+    """A volume the hooks can use: a number from 0 to 1, or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    if not 0 <= number <= 1:
+        return None
+    return round(number, 2)
+
+
+def current_volume(settings):
+    settings, _ = migrated_options(settings)
+    pid = plugin_id(settings)
+    return parse_volume(((settings.get("pluginConfigs") or {}).get(pid) or {}).get("options", {}).get("volume"))
+
+
 def music_settings():
     settings, err = load_settings()
     if err or not isinstance(settings, dict):
         raise ValueError("Claude settings could not be read. Fix settings.json and try again.")
-    return {"track": current_track(settings) or DEFAULT_TRACK, "groups": tracks()}
+    volume = current_volume(settings)
+    if volume is None:
+        volume = parse_volume(os.environ.get("CLAUDE_PLUGIN_OPTION_VOLUME"))
+    return {"track": current_track(settings) or DEFAULT_TRACK, "groups": tracks(),
+            "volume": DEFAULT_VOLUME if volume is None else volume}
 
 
 def save_music(track, expected=None):
@@ -227,15 +253,30 @@ def save_music(track, expected=None):
     if not isinstance(track, str) or not resolve(track, tracks()):
         raise ValueError("Choose an available track, shuffle option, or Off.")
     track = resolve(track, tracks())
+    return save_option("track", track, lambda s: current_track(s) or DEFAULT_TRACK, expected,
+                       "Music changed elsewhere. Close and reopen settings before choosing again.")
+
+
+def save_volume(volume):
+    """The viewer's slider. Applies from the next prompt; the playing loop keeps its level."""
+    volume = parse_volume(volume)
+    if volume is None:
+        raise ValueError("Volume must be a number from 0 to 1.")
+    return save_option("volume", volume, current_volume, None, "")
+
+
+def save_option(key, value, current_of, expected, conflict):
+    """Write one plugin option into the user's settings.json: atomically, with a
+    backup, and leaving everything else exactly as it was."""
     with MUSIC_LOCK:
         settings, err = load_settings()
         if err or not isinstance(settings, dict):
             raise ValueError("Claude settings could not be read. Fix settings.json and try again.")
-        current = current_track(settings) or DEFAULT_TRACK
+        current = current_of(settings)
         if expected is not None and expected != current:
-            raise ValueError("Music changed elsewhere. Close and reopen settings before choosing again.")
-        if track == current:
-            return track
+            raise ValueError(conflict)
+        if value == current:
+            return value
         # Resolve symlinks so atomic replacement doesn't sever a user's link.
         path = os.path.realpath(SETTINGS)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -245,10 +286,10 @@ def save_music(track, expected=None):
                 original = f.read()
             # Re-read before editing; unrelated settings always survive.
             settings = json.loads(original)
-            if (current_track(settings) or DEFAULT_TRACK) != current:
-                raise ValueError("Music changed elsewhere. Close and reopen settings before choosing again.")
+            if current_of(settings) != current:
+                raise ValueError(conflict or "Settings changed while saving. Try again.")
         settings.setdefault("pluginConfigs", {}).setdefault(plugin_id(settings), {}) \
-                .setdefault("options", {})["track"] = track
+                .setdefault("options", {})[key] = value
         fd, temporary = tempfile.mkstemp(prefix=".stay-awhile-", dir=os.path.dirname(path))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -268,7 +309,28 @@ def save_music(track, expected=None):
         finally:
             if os.path.exists(temporary):
                 os.unlink(temporary)
-    return track
+    return value
+
+
+def hook_volume():
+    """The saved volume for the hooks, as text; falls back to the session's option."""
+    try:
+        settings, err = load_settings()
+        if not err and isinstance(settings, dict):
+            saved = current_volume(settings)
+            if saved is not None:
+                return f"{saved:g}"
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    fallback = parse_volume(os.environ.get("CLAUDE_PLUGIN_OPTION_VOLUME"))
+    return f"{DEFAULT_VOLUME if fallback is None else fallback:g}"
+
+
+def cmd_prefs(_):
+    """`prefs current`: what the next turn should play and how loud, tab-separated.
+    One process for both, because each Python start costs the prompt hook time."""
+    print(f"{hook_track()}\t{hook_volume()}")
+    return 0
 
 
 def hook_track():
@@ -320,6 +382,7 @@ def cmd_music(args):
         # `silent` and no cues: an audition is the loop alone, with no
         # finishing chime and no waiting for one to ring out
         env = dict(os.environ, CLAUDE_PLUGIN_OPTION_TRACK=track,
+                   CLAUDE_PLUGIN_OPTION_VOLUME=hook_volume(),   # as loud as a real turn
                    CLAUDE_PLUGIN_OPTION_CUES="false")
         subprocess.run(bash_command() + [os.path.join(HERE, "simulate.sh"), "silent", str(args.seconds)],
                        env=env, check=False,
@@ -535,9 +598,11 @@ def main():
     m.add_argument("action", choices=["list", "play", "set", "current"])
     m.add_argument("track", nargs="?")
     m.add_argument("--seconds", type=int, default=5)
+    prefs = sub.add_parser("prefs"); prefs.add_argument("action", choices=["current"])
     args = ap.parse_args()
     return {"status": cmd_status, "install": cmd_install, "start": cmd_start,
-            "stop": cmd_stop, "open": cmd_open, "music": cmd_music}.get(args.cmd, cmd_status)(args)
+            "stop": cmd_stop, "open": cmd_open, "music": cmd_music,
+            "prefs": cmd_prefs}.get(args.cmd, cmd_status)(args)
 
 
 if __name__ == "__main__":

@@ -105,6 +105,9 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
             turn()  # no audio launch
             self.assertEqual(played.read_text().splitlines(), ['ambient/dusk', 'ambient/dusk', 'ambient/lantern'])
             self.assertEqual((runtime_data/'turn-track/same-session').read_text().strip(), 'none')
+            setup.save_volume(0.7)
+            turn()  # the volume travels with the track, and is cached for cues and resumes
+            self.assertEqual((runtime_data/'volume').read_text().strip(), '0.7')
             config.write_text('{broken')
             turn()  # malformed settings fall back to the original env option
             self.assertEqual(played.read_text().splitlines()[-1], 'heartbeat')
@@ -185,6 +188,13 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
         self.assertEqual(code, 200)
         self.assertEqual(result['track'], 'ambient/dusk')
         self.assertIn('ambient/dusk', result['groups']['ambient'])
+        self.assertEqual(result['volume'], 0.2)   # from seed()
+        code, result = self.request({'volume': 0.75})
+        self.assertEqual((code, result), (200, {'volume': 0.75}))
+        self.assertEqual(self.request(method='GET')[1]['volume'], 0.75)
+        saved = json.loads(self.settings.read_text())['pluginConfigs']['stay-awhile@local']['options']
+        self.assertEqual(saved, {'volume': 0.75, 'track': 'ambient/dusk'})
+        self.assertEqual(setup.hook_volume(), '0.75')
 
     def test_endpoint_rejects_foreign_origins_hosts_and_bad_payloads(self):
         self.seed()
@@ -192,7 +202,8 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
         for headers in [{'Origin': 'https://example.com'}, {'Host': 'example.com:8787'},
                         {'X-Stay-Awhile': ''}, {'Sec-Fetch-Site': 'cross-site'}]:
             self.assertEqual(self.request(payload, headers)[0], 403)
-        for invalid in [{'track': 'none'}, [], {'track': 'none', 'expected': None}]:
+        for invalid in [{'track': 'none'}, [], {'track': 'none', 'expected': None},
+                        {'volume': 1.5}, {'volume': 'loud'}, {'volume': True}, {'volume': 0.5, 'track': 'none'}]:
             self.assertEqual(self.request(invalid)[0], 400)
         self.assertEqual(self.request(payload, {'Content-Length': '99999'})[0], 400)
         self.assertEqual(setup.music_settings()['track'], 'none')

@@ -32,8 +32,15 @@ TURN_TRACK="$DATA/turn-track/$SID"
 if [ "$1" = "resume" ] && [ -f "$TURN_TRACK" ]; then
   readf TRACK "$TURN_TRACK"
 elif [ "${STAY_AWHILE_SIMULATION:-}" != 1 ] && [ -n "$PY" ]; then
-  SAVED_TRACK="$("$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" music current 2>/dev/null)"
+  # track and volume in one Python start: "<track>\t<volume>"
+  PREFS="$("$PY" "${CLAUDE_PLUGIN_ROOT}/scripts/setup.py" prefs current 2>/dev/null)"
+  SAVED_TRACK="${PREFS%%	*}"; SAVED_VOLUME="${PREFS#*	}"
+  [ "$SAVED_VOLUME" = "$PREFS" ] && SAVED_VOLUME=
   [ -n "$SAVED_TRACK" ] && TRACK="$SAVED_TRACK"
+  case "$SAVED_VOLUME" in ''|*[!0-9.]*|.) ;; *)
+    VOLUME="$SAVED_VOLUME"
+    printf '%s\n' "$VOLUME" > "$DATA/volume" 2>/dev/null ;;   # for cues and resumes, see lib.sh
+  esac
 fi
 
 # Validate against a real file rather than trusting the configured string.

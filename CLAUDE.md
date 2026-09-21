@@ -86,10 +86,13 @@ behaviour and options.
 - `session.sh` registers SessionStart; prompts and the status line refresh
   `sessions/<sid>`. SessionEnd removes it. `active/` means working, while
   `started/` also includes permission-paused turns; do not interchange them.
-- New prompts resolve music via `setup.py music current`, reading the saved
-  user preference ahead of Claude's session-cached track environment. Simulations
-  bypass this read. `turn-track/<sid>` holds the resolved song for permission
-  resumes; completed turns remove it. Saving settings must not restart audio.
+- New prompts resolve music and volume via `setup.py prefs current` (one
+  Python start, tab-separated), reading the saved user preference ahead of
+  Claude's session-cached option environment. Simulations bypass this read.
+  `turn-track/<sid>` holds the resolved song for permission resumes;
+  completed turns remove it. The volume is cached in `$DATA/volume`, which
+  lib.sh reads on every hook so cues and resumes match without Python.
+  Saving settings must not restart audio.
 - Server PID records include process start time and command. Never signal an
   unverified or legacy bare PID; refuse safely if ownership can't be established.
 
@@ -143,9 +146,11 @@ behaviour and options.
   setup.py's printed explanation rather than writing its own — a model
   paraphrasing it has produced wrong descriptions.
 - `scripts/viewer-server.py` reads hook-owned data without modifying it. It
-  writes and cleans up its own `server.pid` identity record; `/settings` delegates
-  music saves to `setup.save_music`, also used by the music command. Keep saves
-  atomic, preserve unrelated settings, and never start/stop playback here.
+  writes and cleans up its own `server.pid` identity record; `/settings`
+  accepts exactly `{track, expected}` or `{volume}` and delegates to
+  `setup.save_music` / `setup.save_volume`, both thin wrappers over
+  `save_option`. Keep saves atomic, preserve unrelated settings, and never
+  start/stop playback here.
 - `/settings` requires the viewer's custom header and a loopback Host with the
   server's port; reject foreign origins and do not enable CORS. Never expose
   arbitrary settings edits or shell commands through this endpoint.

@@ -238,11 +238,15 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < length <= 4096 or self.headers.get("Content-Type") != "application/json":
                 raise ValueError("Invalid settings request.")
             payload = json.loads(self.rfile.read(length))
-            if (not isinstance(payload, dict) or set(payload) != {"track", "expected"}
-                    or not isinstance(payload["expected"], str)):
+            if not isinstance(payload, dict):
                 raise ValueError("Invalid settings request.")
-            track = settings_tool.save_music(payload["track"], payload["expected"])
-            return self.settings_response(200, {"track": track})
+            if set(payload) == {"track", "expected"} and isinstance(payload["expected"], str):
+                track = settings_tool.save_music(payload["track"], payload["expected"])
+                return self.settings_response(200, {"track": track})
+            if set(payload) == {"volume"}:
+                volume = settings_tool.save_volume(payload["volume"])
+                return self.settings_response(200, {"volume": volume})
+            raise ValueError("Invalid settings request.")
         except ValueError as e:
             return self.settings_response(400, {"error": str(e)})
         except (OSError, TypeError, AttributeError):

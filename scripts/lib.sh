@@ -57,6 +57,14 @@ if [ "${STAY_AWHILE_SIMULATION:-}" != 1 ] && [ "$DATA" != "$HOME/.claude/waiting
 fi
 
 VOLUME="${CLAUDE_PLUGIN_OPTION_VOLUME:-0.4}"
+# The viewer's slider saves `volume` to settings.json; Claude only refreshes
+# the option environment at session start. start.sh reads the saved value on
+# each prompt and caches it here, so cues and resumes pick it up without a
+# Python start. Simulations keep their explicit level.
+if [ "${STAY_AWHILE_SIMULATION:-}" != 1 ]; then
+  readf saved_volume "$DATA/volume"
+  case "$saved_volume" in ''|*[!0-9.]*|.) ;; *) VOLUME="$saved_volume" ;; esac
+fi
 CUES="${CLAUDE_PLUGIN_OPTION_CUES:-true}"
 
 # One bed at a time across all sessions, because overlapping beds sound like
