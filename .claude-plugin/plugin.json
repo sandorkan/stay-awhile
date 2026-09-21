@@ -2,6 +2,10 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "stay-awhile",
   "displayName": "Stay awhile",
+  "author": {
+    "name": "Sandro Brunner",
+    "url": "https://github.com/sandorkan"
+  },
   "version": "0.1.0",
   "description": "Ambient music, living landscapes, and gentle cues to help you stay with one task while Claude works.",
   "license": "MIT",
