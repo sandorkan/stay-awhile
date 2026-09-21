@@ -52,19 +52,23 @@ save() {
 
 save "$DATA/status.json" "$INPUT"
 
-# One pass over the payload: five_hour, seven_day and spend_limit usage, the
-# five-hour reset, and the session id, `|`-separated. jq when it's there, awk
-# when it isn't. Fields stay empty for windows that are missing or null.
+# One pass over the payload: usage and reset time of the five_hour, seven_day
+# and spend_limit windows, then the session id, `|`-separated. jq when it's
+# there, awk when it isn't. Fields stay empty for windows that are missing or
+# null.
 if command -v jq >/dev/null 2>&1; then
-  FIELDS="$(jq -r '[.rate_limits.five_hour.used_percentage, .rate_limits.seven_day.used_percentage,
-                    .rate_limits.spend_limit.used_percentage, .rate_limits.five_hour.resets_at, .session_id]
+  FIELDS="$(jq -r '[.rate_limits.five_hour.used_percentage, .rate_limits.five_hour.resets_at,
+                    .rate_limits.seven_day.used_percentage, .rate_limits.seven_day.resets_at,
+                    .rate_limits.spend_limit.used_percentage, .rate_limits.spend_limit.resets_at, .session_id]
                    | map(if . == null then "" else tostring end) | join("|")' <<< "$INPUT" 2>/dev/null)"
 else
   FIELDS="$(awk '
     { s = s $0 }
-    END { printf "%s|%s|%s|%s|%s", win("five_hour", "used_percentage", "[0-9.]+"),
-            win("seven_day", "used_percentage", "[0-9.]+"), win("spend_limit", "used_percentage", "[0-9.]+"),
-            win("five_hour", "resets_at", "[0-9]+"), str("session_id") }
+    END { printf "%s|%s|%s|%s|%s|%s|%s",
+            win("five_hour", "used_percentage", "[0-9.]+"), win("five_hour", "resets_at", "[0-9]+"),
+            win("seven_day", "used_percentage", "[0-9.]+"), win("seven_day", "resets_at", "[0-9]+"),
+            win("spend_limit", "used_percentage", "[0-9.]+"), win("spend_limit", "resets_at", "[0-9]+"),
+            str("session_id") }
     # a number inside the flat object under "name"; nothing for null or absent
     function win(name, key, num,   rest, i) {
       i = index(s, "\"" name "\""); if (!i) return ""
@@ -82,22 +86,56 @@ else
       return v
     }' <<< "$INPUT" 2>/dev/null)"
 fi
-IFS='|' read -r FIVE WEEK SPEND RESETS SID <<< "$FIELDS"
+IFS='|' read -r FIVE RESETS WEEK WEEK_RESETS SPEND SPEND_RESETS SID <<< "$FIELDS"
 SID="${SID//[^A-Za-z0-9_-]/}"
 case "$FIVE" in *[!0-9.]*|.) FIVE= ;; esac
 case "$WEEK" in *[!0-9.]*|.) WEEK= ;; esac
 case "$SPEND" in *[!0-9.]*|.) SPEND= ;; esac
 case "$RESETS" in *[!0-9]*) RESETS= ;; esac
+case "$WEEK_RESETS" in *[!0-9]*) WEEK_RESETS= ;; esac
+case "$SPEND_RESETS" in *[!0-9]*) SPEND_RESETS= ;; esac
+
+# tenths <var> <pct>  — 43.6 -> 436, 27 -> 270, for comparing percentages.
+tenths() {
+  local n="${2%%.*}" d="${2#*.}"
+  [ "$d" = "$2" ] && d=0
+  d="${d}0"; d="${d:0:1}"
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf -v "$1" '%s' "$((n * 10 + d))"
+}
+
+# newest <used-var> <resets-var> <window>  — every open session runs this
+# script, and an idle one keeps repeating the numbers it last saw. Usage can't
+# fall within one window (same resets_at), so a reading below the cached one is
+# stale: show the cached value instead and return 1 so the cache stays.
+# limits-<window>.max holds "<resets_at> <used>" of the highest reading.
+newest() {
+  local cached_resets= cached_used= old new
+  [ -f "$DATA/limits-$3.max" ] && { read -r cached_resets cached_used < "$DATA/limits-$3.max"; } 2>/dev/null
+  [ -n "${!1}" ] || return 0
+  if [ -n "$cached_used" ] && [ "$cached_resets" = "${!2}" ]; then
+    tenths old "$cached_used"; tenths new "${!1}"
+    if [ "$old" -gt "$new" ]; then
+      printf -v "$1" '%s' "$cached_used"
+      return 1
+    fi
+  fi
+  printf '%s %s\n' "${!2}" "${!1}" > "$DATA/limits-$3.max" 2>/dev/null
+  return 0
+}
+newest FIVE RESETS five_hour;          FIVE_FRESH=$?
+newest WEEK WEEK_RESETS seven_day;     WEEK_FRESH=$?
+newest SPEND SPEND_RESETS spend_limit; SPEND_FRESH=$?
 
 # Keep only payloads with actual window data, and replace the cache atomically.
 # Null/empty rate_limits from a new session must not erase a still-valid cache.
-[ -n "$FIVE$WEEK" ] && save "$DATA/limits.json" "$INPUT"
+[ -n "$FIVE$WEEK" ] && [ "$FIVE_FRESH$WEEK_FRESH" = 00 ] && save "$DATA/limits.json" "$INPUT"
 
 # Cache windows independently: weekly-only updates must not erase five-hour
 # data. Separate atomic files also avoid read/merge/write races across sessions.
-[ -n "$FIVE" ]  && save "$DATA/limits-five_hour.json" "$INPUT"
-[ -n "$WEEK" ]  && save "$DATA/limits-seven_day.json" "$INPUT"
-[ -n "$SPEND" ] && save "$DATA/limits-spend_limit.json" "$INPUT"
+[ -n "$FIVE" ]  && [ "$FIVE_FRESH" = 0 ]  && save "$DATA/limits-five_hour.json" "$INPUT"
+[ -n "$WEEK" ]  && [ "$WEEK_FRESH" = 0 ]  && save "$DATA/limits-seven_day.json" "$INPUT"
+[ -n "$SPEND" ] && [ "$SPEND_FRESH" = 0 ] && save "$DATA/limits-spend_limit.json" "$INPUT"
 
 # Refresh the open-session lease even while no turn is running.
 if [ -n "$SID" ] && [ "${STAY_AWHILE_SIMULATION:-}" != 1 ]; then

@@ -43,13 +43,21 @@ behaviour and options.
   carry the plugin root in its command line, spelled with forward slashes:
   `play.ps1` gets `-File C:/.../play.ps1`. `kill -- -PGID` does take native
   children down.
-- The Windows player is `scripts/play.ps1`: winmm through
-  `System.Media.SoundPlayer` (`PlayLooping` is gapless) plus `waveOutSetVolume`
-  for volume and the fade, with the P/Invoke stub emitted by Reflection.Emit.
-  WPF MediaPlayer and the WMP COM object need the Media Feature Pack and were
-  dead on the machine this was built on. PowerShell can't see its MSYS PID, so
-  `start_loop` picks the fade marker and leaves it in `loop.marker`;
+- The Windows player is `scripts/play.ps1`: the winmm waveOut API called
+  directly, one buffer the device loops itself (gapless). Volume is applied
+  to the samples by an IL loop emitted at run time, so 0.4 means the same as
+  `afplay -v 0.4`; `waveOutSetVolume` on the handle is *not* linear (0.4 was
+  inaudible) and is used only for the fade, and with a device id it does
+  nothing to a `PlaySound` stream at all. WPF MediaPlayer and the WMP COM
+  object need the Media Feature Pack and were dead on the machine this was
+  built on. Audible checks need a person: a process that is alive and exits
+  cleanly proved nothing about sound twice. PowerShell can't see its MSYS
+  PID, so `start_loop` picks the fade marker and leaves it in `loop.marker`;
   `loop_marker` resolves it, and `fade-cleanup.sh <pid> [marker]` removes it.
+- Several sessions share the status files; an idle one repeats stale numbers.
+  `newest` in statusline.sh keeps `limits-<window>.max` monotonic within a
+  `resets_at`, and the viewer prefers the cached window when it is higher for
+  the same reset. Usage cannot fall inside a window, so higher means newer.
 - Each external command costs ~100 ms under MSYS, and hooks sit in the
   prompt's critical path. lib.sh provides builtin replacements: `readf`,
   `json_get`, `session_id VAR JSON`, `count_get VAR`, `now_epoch`; use `: >`

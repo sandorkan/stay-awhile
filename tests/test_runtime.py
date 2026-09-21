@@ -150,6 +150,21 @@ class RuntimeTests(unittest.TestCase):
             self.assertIsNone(state['five_hour'])
             self.assertEqual(state['seven_day']['used'], 36)
 
+    def test_idle_session_cannot_lower_usage_within_a_window(self):
+        reset = int(time.time()) + 1000
+        def report(used, resets, sid):
+            return subprocess.run([*BASH, str(ROOT/'scripts/statusline.sh')], text=True, env=self.env(),
+                                  input=json.dumps({'session_id': sid, 'rate_limits': {'five_hour': {'used_percentage': used, 'resets_at': resets}}}),
+                                  capture_output=True, check=True).stdout
+        self.assertTrue(report(59, reset, 'live').startswith('59%'))
+        # an idle session repeating the numbers it saw an hour ago
+        self.assertTrue(report(9, reset, 'idle').startswith('59%'))
+        self.assertEqual(server.read_state(str(self.data))['five_hour']['used'], 59)
+        self.assertEqual(json.loads((self.data/'status.json').read_text())['session_id'], 'idle')
+        # a new window: lower is real
+        self.assertTrue(report(3, reset + 18000, 'live').startswith('3%'))
+        self.assertEqual(server.read_state(str(self.data))['five_hour']['used'], 3)
+
     def test_old_fade_watchdog_preserves_new_loop(self):
         # No real player is launched. The expired PID cannot exist on our
         # supported platforms; the actual watchdog still runs its ownership check.

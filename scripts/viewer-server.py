@@ -123,20 +123,30 @@ def read_state(data):
 
     limits = dict(status.get("rate_limits") or {})
     for name in ("five_hour", "seven_day", "spend_limit"):
-        # An explicit numeric reading wins, including an expired one. Missing
-        # windows may use their own cache, but never beyond its original reset.
-        if _num((limits.get(name) or {}).get("used_percentage")) is not None:
-            continue
+        live = limits.get(name) or {}
+        cached = {}
         for filename in (f"limits-{name}.json", "limits.json"):
             try:
                 with open(os.path.join(data, filename), encoding="utf-8") as f:
-                    cached = (json.load(f) or {}).get("rate_limits") or {}
-                window = cached.get(name) or {}
+                    window = ((json.load(f) or {}).get("rate_limits") or {}).get(name) or {}
                 if _num(window.get("used_percentage")) is not None:
-                    limits[name] = window
+                    cached = window
                     break
             except (OSError, ValueError):
                 pass
+        if _num(live.get("used_percentage")) is None:
+            # Missing windows may use their own cache, but never beyond its
+            # original reset (read_window drops expired ones).
+            if cached:
+                limits[name] = cached
+        elif (cached.get("resets_at") == live.get("resets_at")
+              and _num(cached.get("used_percentage")) is not None
+              and cached["used_percentage"] > live["used_percentage"]):
+            # Every open session writes status.json, and an idle one repeats
+            # the numbers it last saw. Usage can't fall within one window, so
+            # the higher reading is the newer one; the status line keeps the
+            # cache monotonic for the same reason.
+            limits[name] = cached
     active = set(fresh_markers(data, "active", now))
     turns, started = [], []
     try:
