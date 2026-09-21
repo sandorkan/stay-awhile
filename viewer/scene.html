@@ -84,6 +84,12 @@
   .settings-panel input { accent-color: #c8bd9f; }
   .settings-panel input[type="range"] { display: block; width: 100%; margin: 2px 0 0; }
   .settings-panel input[type="range"]:focus-visible { outline: 2px solid #e8bda0; outline-offset: 2px; }
+  .settings-support { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(233,221,195,.18); }
+  .settings-support p { margin: 0 0 4px; }
+  .settings-support a { display: inline-block; padding: 3px 0; color: #d8bea0;
+    font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+  .settings-support a:hover { color: #f2dcc0; }
+  .settings-support a:focus-visible { outline: 2px solid #e8bda0; outline-offset: 3px; border-radius: 2px; }
   @media (hover: none) { .settings-toggle { opacity: .85; } }
   @media (prefers-reduced-motion: reduce) { .settings-toggle { transition: none; } }
   .day-count { display: block; margin-top: 2px; font-size: 10px; opacity: .85; }
@@ -125,6 +131,11 @@
     <p id="volumeHint">Applies from the next turn.</p>
     <label><input type="checkbox" id="stripToggle"> Show turn stats</label>
     <p class="settings-feedback" id="settingsFeedback" role="status" aria-live="polite"></p>
+    <footer class="settings-support">
+      <p>Enjoying your stay?</p>
+      <a href="https://buymeacoffee.com/sandorkan" target="_blank" rel="noopener noreferrer"
+         aria-label="Buy me a coffee (opens in a new tab)"><span aria-hidden="true">☕</span> Buy me a coffee</a>
+    </footer>
   </section>
   <div class="hud"><span class="left" id="hudL"></span><span class="right" id="hudR"></span></div>
 </div></div>
