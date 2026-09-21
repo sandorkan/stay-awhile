@@ -9,8 +9,6 @@ export STAY_AWHILE_SIMULATION="${STAY_AWHILE_SIMULATION:-${WAITING_ROOM_SIMULATI
 # critical path. So: bash builtins for reads, regexes and string surgery, and
 # an external command only where there is no builtin (find, ps, mv, rm).
 
-BS='\'   # a backslash for ${var//"$BS"//}; the bare escape misbehaves inside quotes
-
 # readf <var> <file>  — first line of a file into a variable, empty if missing.
 readf() {
   local __line=
@@ -18,12 +16,24 @@ readf() {
   printf -v "$1" '%s' "$__line"
 }
 
+# slashes <var> <path>  — backslashes to forward slashes, no fork. Pattern
+# substitution with a backslash behaves differently in every bash (quoted,
+# unquoted, 3.2 or 5); splitting on the character and rejoining does not.
+slashes() {
+  # shellcheck disable=SC2141  # the literal backslash is the point
+  local IFS='\' __parts __joined
+  read -r -a __parts <<< "$2"
+  printf -v __joined '%s/' "${__parts[@]}"
+  printf -v "$1" '%s' "${__joined%/}"
+}
+
 # data_dir_ok <path>  — a data directory worth following or publishing: one
 # that exists under a .claude directory, where Claude Code assigns them. The
 # pointer file below redirects every hook, so a stray value (a test run with a
 # scratch CLAUDE_PLUGIN_DATA and no simulation flag, say) must not get in.
 data_dir_ok() {
-  local p="${1//"$BS"//}"
+  local p
+  slashes p "$1"
   case "$p" in */.claude/*) [ -d "$1" ] ;; *) return 1 ;; esac
 }
 
@@ -284,7 +294,7 @@ wait_end() {
   count_get tools "$DATA/count/$1.tools"
   count_get perms "$DATA/count/$1.perms"
   # basename, for either slash. Hook JSON carries C:\\Users\\... on Windows.
-  project="${project//"$BS"//}"; project="${project%/}"; project="${project##*/}"
+  slashes project "$project"; project="${project%/}"; project="${project##*/}"
 
   # ponytail: one ~90-byte line per turn, never rotated. Trim it if it matters.
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -333,7 +343,7 @@ ours() {
   fi
   # Compare with forward slashes only: Windows spells the same path C:\x,
   # C:/x, and (seen from WSL) \wsl$\...\x.
-  cmd="${cmd//"$BS"//}"; root="${CLAUDE_PLUGIN_ROOT//"$BS"//}"
+  slashes cmd "$cmd"; slashes root "$CLAUDE_PLUGIN_ROOT"
   case "$cmd" in *"$root"*) return 0 ;; esac
   if [ -n "$WINDOWS" ]; then   # an MSYS-style root (/c/...) shows up as C:/... in ps
     root="$(cygpath -m "$CLAUDE_PLUGIN_ROOT" 2>/dev/null)"

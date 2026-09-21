@@ -33,8 +33,9 @@ behaviour and options.
 - Claude Code runs hooks and `Bash(...)` tools in Git for Windows' bash
   (MSYS). `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` arrive as `C:/...`
   with forward slashes; hook JSON carries `C:\\Users\\...`. MSYS accepts both,
-  and lib.sh normalises with `${var//"$BS"//}` (the bare `\\` pattern
-  misbehaves inside quotes).
+  and lib.sh normalises with `slashes VAR PATH`, which splits on the
+  backslash with `read -a` and rejoins. Do not use `${var//\\//}` or its
+  quoted variants: each behaves differently across bash 3.2 and 5.
 - `ours()` reads `/proc/<pid>/cmdline` on Windows (no fork, full length) and
   compares with slashes normalised. Not MSYS `ps`: it has no `-o` and it
   truncates rows to `$COLUMNS`, which Claude Code sets for hooks but not for

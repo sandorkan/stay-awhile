@@ -18,10 +18,12 @@ export STAY_AWHILE_SIMULATION="${STAY_AWHILE_SIMULATION:-${WAITING_ROOM_SIMULATI
 #                   "refreshInterval": 5 }
 
 IFS= read -r -d '' INPUT
-BS='\'
 readf() { local __l=; [ -f "$2" ] && { IFS= read -r __l < "$2"; } 2>/dev/null; printf -v "$1" '%s' "$__l"; }
-# Same rule as lib.sh: follow the pointer only to an existing dir under .claude.
-data_dir_ok() { local p="${1//"$BS"//}"; case "$p" in */.claude/*) [ -d "$1" ] ;; *) return 1 ;; esac; }
+# Same rules as lib.sh: backslashes to slashes without a fork or a
+# bash-version-dependent pattern, and follow the pointer only into .claude.
+# shellcheck disable=SC2141  # the literal backslash is the point
+slashes() { local IFS='\' __p __j; read -r -a __p <<< "$2"; printf -v __j '%s/' "${__p[@]}"; printf -v "$1" '%s' "${__j%/}"; }
+data_dir_ok() { local p; slashes p "$1"; case "$p" in */.claude/*) [ -d "$1" ] ;; *) return 1 ;; esac; }
 
 DATA="${CLAUDE_PLUGIN_DATA:-}"
 if [ -z "$DATA" ]; then
@@ -110,7 +112,7 @@ tenths() {
 # stale: show the cached value instead and return 1 so the cache stays.
 # limits-<window>.max holds "<resets_at> <used>" of the highest reading.
 newest() {
-  local cached_resets= cached_used= old new
+  local cached_resets='' cached_used='' old new
   [ -f "$DATA/limits-$3.max" ] && { read -r cached_resets cached_used < "$DATA/limits-$3.max"; } 2>/dev/null
   [ -n "${!1}" ] || return 0
   if [ -n "$cached_used" ] && [ "$cached_resets" = "${!2}" ]; then
