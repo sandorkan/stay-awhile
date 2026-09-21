@@ -13,9 +13,10 @@ Player COM object need the Media Feature Pack, which N editions and some
 managed machines lack; winmm is core Windows.
 
 Volume is applied to the samples before they reach the device, so 0.4 means
-the same as `afplay -v 0.4` on macOS. waveOutSetVolume on the stream handle
-does work, but its scale is not linear — 0.4 came out inaudible — so it is
-used only for the fade, where the shape matters less than the direction.
+the same as `afplay -v 0.4` on macOS, and the fade rewrites the looping
+buffer with ever quieter samples. waveOutSetVolume on the stream handle does
+exist, but its scale is so compressed that 0.4 came out inaudible and a ramp
+from 1 sounded like a cut; it only backs up the fade for non-16-bit files.
 
 The P/Invoke stubs and the sample-scaling loop are emitted with
 Reflection.Emit, so no C# compiler runs — Add-Type would add about a second
@@ -94,7 +95,8 @@ try {
   $buffer = $M::AllocHGlobal($dataLen)
   $bits = [BitConverter]::ToUInt16($bytes, $fmtAt + 14)
   $level = [Math]::Max(0, [Math]::Min(1, $Volume))
-  if ($bits -eq 16 -and $level -lt 1) {
+  $samples = $null
+  if ($bits -eq 16) {
     # a[i] = (short)((a[i] * gain) >> 16), gain = level * 65536, as IL: a
     # PowerShell loop over a minute of audio would take longer than the fade.
     $scaler = New-Object Reflection.Emit.DynamicMethod('Scale', [void], [Type[]]@([int16[]], [int]), [object].Module)
@@ -114,7 +116,7 @@ try {
     $scale = $scaler.CreateDelegate([System.Action`2].MakeGenericType([int16[]], [int]))
     $samples = New-Object int16[] ([int]($dataLen / 2))
     [Buffer]::BlockCopy($bytes, $dataAt, $samples, 0, $samples.Length * 2)
-    $scale.Invoke($samples, [int]($level * 65536))
+    if ($level -lt 1) { $scale.Invoke($samples, [int]($level * 65536)) }
     $M::Copy($samples, 0, $buffer, $samples.Length)
   } else {
     $M::Copy($bytes, $dataAt, $buffer, $dataLen)
@@ -151,9 +153,19 @@ try {
   while ($true) {
     Start-Sleep -Milliseconds 100
     if ($StopFile -and (Test-Path -LiteralPath $StopFile)) {
+      # Rewrite the buffer the device is looping with quieter samples, step
+      # by step: a linear amplitude fade, like AVAudioPlayer's on macOS. The
+      # device may catch a step mid-write; at worst that is a tick.
       $steps = 15
+      $work = if ($samples) { New-Object int16[] $samples.Length } else { $null }
       for ($i = 1; $i -le $steps; $i++) {
-        Set-StreamVolume (1 - $i / $steps)
+        if ($work) {
+          [Array]::Copy($samples, $work, $samples.Length)
+          $scale.Invoke($work, [int]((1 - $i / $steps) * 65536))
+          $M::Copy($work, 0, $buffer, $work.Length)
+        } else {
+          Set-StreamVolume (1 - $i / $steps)
+        }
         Start-Sleep -Milliseconds ([int](1000 * $Fade / $steps))
       }
       exit 0
