@@ -31,9 +31,13 @@ Run these commands inside Claude Code:
 ```text
 /plugin marketplace add sandorkan/stay-awhile
 /plugin install stay-awhile@stay-awhile-marketplace
+/reload-plugins
 /stay-awhile:init
 /stay-awhile:show
 ```
+
+Run `/reload-plugins` after installation to load the plugin into the current
+session before testing audio or running its commands.
 
 Audio works without viewer setup. To use the usage display, `init` shows the
 status-line change and asks before saving it. It can preserve an existing

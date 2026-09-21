@@ -52,8 +52,8 @@ Ready when: a new viewer can understand what it does without reading the README.
 - [x] Check the repository description against the suggested wording above.
 - [x] Review and add relevant topics: `claude-code`, `claude-code-plugin`,
       `pixel-art`, `ambient-music`, and `developer-tools`.
-- [ ] Follow the README installation instructions in a fresh Claude Code setup.
-- [ ] Verify that opening the viewer and changing scene, music, and volume work.
+- [x] Follow the README installation instructions (Sandro confirmed the installation test passed after reloading plugins).
+- [x] Verify that opening the viewer and changing scene, music, and volume work.
 - [x] Confirm platform requirements and known limitations are easy to find.
 - [ ] Add the demo GIF and verify it displays on GitHub.
 - [ ] Choose a release version consistent with the plugin manifest and publish
@@ -64,13 +64,20 @@ and reach the experience shown in the demo.
 
 This phase can start before the demo is recorded. Only the GIF task depends
 on phase 1. Release notes are prepared in [release-v0.1.0.md](release-v0.1.0.md);
-publication remains pending the fresh-install and real-browser checks.
+installation and viewer checks have been confirmed by Sandro. Release publication
+is the remaining step; the demo GIF is deferred until phase 1 is complete.
 
 Checks on 2026-09-21: the README command names match the marketplace and command
 files; 25 Python regression tests and the viewer runtime checks passed. These
 do not establish that a fresh installation or real browser pop-out was tested.
 
 Discovery reference: [GitHub's Claude Code plugin topic](https://github.com/topics/claude-code-plugin).
+
+Installation feedback: Sandro reported that audio started only after running
+`/reload-plugins` following installation. Added this step immediately after
+installation in the README and release notes, and noted it in the audio guide.
+Sandro subsequently confirmed that the remaining checks worked. This is a
+user-reported pass on the tested setup, not a claim of testing every platform.
 
 ## 3. Submit to Anthropic's plugin directory
 

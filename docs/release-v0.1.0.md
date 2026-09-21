@@ -1,7 +1,8 @@
 # Stay awhile v0.1.0
 
-Draft release notes. Version matches the plugin manifest. Publish after the
-fresh-install and real-browser checks in [the launch plan](launch-plan.md).
+Draft release notes. Version matches the plugin manifest. Sandro confirmed
+the installation and viewer checks in [the launch plan](launch-plan.md) passed;
+release publication is pending.
 
 ---
 
@@ -27,9 +28,13 @@ Run inside Claude Code:
 ```text
 /plugin marketplace add sandorkan/stay-awhile
 /plugin install stay-awhile@stay-awhile-marketplace
+/reload-plugins
 /stay-awhile:init
 /stay-awhile:show
 ```
+
+Run `/reload-plugins` after installation to load the plugin into the current
+session before testing audio or running its commands.
 
 The viewer needs Python 3. Chrome or Edge is required for the floating window;
 the scene can also run in a regular browser tab. Audio requirements vary by

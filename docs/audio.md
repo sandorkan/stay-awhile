@@ -11,6 +11,9 @@ claude plugin install stay-awhile@stay-awhile-marketplace \
   --config track=breathing/5.5-5.5-resonance --config volume=0.3
 ```
 
+If Claude Code is already running, run `/reload-plugins` inside that session
+after installation before testing audio or using the plugin's commands.
+
 | Option          | Default     | Notes |
 |-----------------|-------------|-------|
 | `track`         | `breathing/4-6-calm` | A loop from the table below, e.g. `8-bit/harbor`; `shuffle-ambient`, `shuffle-8-bit` or `shuffle-soundscapes` for a new random one from that category each prompt; or `none` |
