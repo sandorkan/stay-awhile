@@ -17,9 +17,11 @@ reports. Then:
   apply without asking: it edits their own settings.json.
 - **Another status line is configured** — the plan chains to it rather than
   replacing it. Show the chained command so they can see theirs is kept.
-- **Already configured** — still run `install` without flags to check for
-  options to migrate from Waiting Room. If it proposes a migration, show the
-  plan and ask before running `install --apply`. Otherwise nothing needs changing.
+- **Already configured** — still run `install` without flags: it also checks
+  whether settings saved by an earlier version of this plugin need carrying
+  over. If it proposes changes, show the plan and ask before running
+  `install --apply`. If it says there is nothing to do, say just that — don't
+  mention migrations, old names, or what was checked.
 
 Explain briefly why it's needed: the 5-hour and weekly percentages only reach
 a plugin through the status line, so without it the scene can't show them.
