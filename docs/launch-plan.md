@@ -56,16 +56,17 @@ Ready when: a new viewer can understand what it does without reading the README.
 - [x] Verify that opening the viewer and changing scene, music, and volume work.
 - [x] Confirm platform requirements and known limitations are easy to find.
 - [ ] Add the demo GIF and verify it displays on GitHub.
-- [ ] Choose a release version consistent with the plugin manifest and publish
+- [x] Choose a release version consistent with the plugin manifest and publish
       a tagged release with a short feature summary and installation instructions.
 
 Ready when: someone unfamiliar with the project can install it from the README
 and reach the experience shown in the demo.
 
 This phase can start before the demo is recorded. Only the GIF task depends
-on phase 1. Release notes are prepared in [release-v0.1.0.md](release-v0.1.0.md);
-installation and viewer checks have been confirmed by Sandro. Release publication
-is the remaining step; the demo GIF is deferred until phase 1 is complete.
+on phase 1. [v0.1.0 is published](https://github.com/sandorkan/stay-awhile/releases/tag/v0.1.0)
+with the [release notes](release-v0.1.0.md); installation and viewer checks
+have been confirmed by Sandro. Only the demo GIF remains deferred until phase 1
+is complete.
 
 Checks on 2026-09-21: the README command names match the marketplace and command
 files; 25 Python regression tests and the viewer runtime checks passed. These

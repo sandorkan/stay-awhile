@@ -1,8 +1,8 @@
 # Stay awhile v0.1.0
 
-Draft release notes. Version matches the plugin manifest. Sandro confirmed
-the installation and viewer checks in [the launch plan](launch-plan.md) passed;
-release publication is pending.
+Published as [Stay awhile v0.1.0](https://github.com/sandorkan/stay-awhile/releases/tag/v0.1.0)
+from commit `3e3fd0f`. Version matches the plugin manifest; Sandro confirmed
+the installation and viewer checks in [the launch plan](launch-plan.md) passed.
 
 ---
 
