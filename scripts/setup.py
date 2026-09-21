@@ -137,7 +137,7 @@ def statusline_plan(settings):
     old = r"(?:'[^']*waiting-room[^']*/scripts/statusline\.sh'|\"[^\"]*waiting-room[^\"]*/scripts/statusline\.sh\"|[^\s'\"]*waiting-room[^\s'\"]*/scripts/statusline\.sh)"
     if re.search(old, existing):
         entry["command"] = re.sub(old, lambda _: ours, existing)
-        return "replace", entry, "update the former Waiting Room status line"
+        return "replace", entry, "update the status line left by an earlier version of this plugin"
     entry["command"] = (f"CLAUDE_PLUGIN_OPTION_STATUSLINE_CHAIN={shlex.quote(existing)} "
                         f"{ours}")
     return "chain", entry, f"keep your status line ({existing}) and append the usage segments"
@@ -432,7 +432,7 @@ def cmd_install(args):
     print(f"{SETTINGS}")
     print(f"  {why}")
     if migrated:
-        print("  copy missing Waiting Room options to Stay awhile (preserve existing choices)")
+        print("  carry over options saved by an earlier version of this plugin (existing choices are kept)")
     print("  statusLine = " + json.dumps(entry, indent=2).replace("\n", "\n  "))
     print("\nnote: a configured status line replaces some of Claude Code's footer hints")
     print("      (esc to interrupt, ? for shortcuts).")

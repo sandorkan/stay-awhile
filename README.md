@@ -147,7 +147,7 @@ analysis examples.
 - [Platform requirements and Windows notes](docs/platforms.md)
 - [Local data and turn-history analysis](docs/data.md)
 - [Development and testing](docs/development.md)
-- [Upgrading from Waiting Room](docs/upgrading.md)
+- [Upgrading from an earlier version](docs/upgrading.md)
 
 ## Support
 
