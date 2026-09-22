@@ -72,6 +72,7 @@ if [ "$TRACK" != "none" ] && [ -f "$SOUNDS/$TRACK.wav" ]; then
 fi
 
 [ "$1" = "resume" ] && exit 0
+[ -f "$MUTED" ] && exit 0   # nothing to arm while sound is off
 
 # --- look-away cue ----------------------------------------------------------
 EVERY="${CLAUDE_PLUGIN_OPTION_EYE_CUE_EVERY:-8}"

@@ -6,6 +6,7 @@
     setup.py install --apply     make those changes (backs the file up first)
     setup.py start | stop        the local viewer server
     setup.py open                start it if needed, then open the viewer
+    setup.py sound on|off|status all sound off now (and back on), keeping music and volume
 
 A plugin can't ship a statusLine — plugin settings.json only supports `agent`
 and `subagentStatusLine` — so the one setting has to go in the user's own
@@ -245,7 +246,35 @@ def music_settings():
     if volume is None:
         volume = parse_volume(os.environ.get("CLAUDE_PLUGIN_OPTION_VOLUME"))
     return {"track": current_track(settings) or DEFAULT_TRACK, "groups": tracks(),
-            "volume": DEFAULT_VOLUME if volume is None else volume}
+            "volume": DEFAULT_VOLUME if volume is None else volume, "muted": is_muted()}
+
+
+# ----------------------------------------------------------------- sound on/off
+
+def is_muted():
+    """The mute flag lives in the data directory, not in settings: it is
+    "quiet for now", shared by every session, and must never need a restart."""
+    return os.path.isfile(os.path.join(DATA, "muted"))
+
+
+def set_muted(muted):
+    """Run sound.sh, which owns the flag and the fade (that logic is bash)."""
+    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=ROOT, CLAUDE_PLUGIN_DATA=DATA)
+    subprocess.run(bash_command() + [os.path.join(HERE, "sound.sh"), "off" if muted else "on"],
+                   env=env, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return is_muted()
+
+
+def cmd_sound(args):
+    if args.action == "status":
+        print("Sound is off; /stay-awhile:unmute turns it back on." if is_muted() else "Sound is on.")
+        return 0
+    if set_muted(args.action == "off"):
+        print("Sound off. The loop is fading out; every session stays silent, cues included, "
+              "until /stay-awhile:unmute. Music and volume are kept.")
+    else:
+        print("Sound on. It returns with the next tool call or prompt.")
+    return 0
 
 
 def save_music(track, expected=None):
@@ -599,10 +628,11 @@ def main():
     m.add_argument("track", nargs="?")
     m.add_argument("--seconds", type=int, default=5)
     prefs = sub.add_parser("prefs"); prefs.add_argument("action", choices=["current"])
+    sound = sub.add_parser("sound"); sound.add_argument("action", choices=["on", "off", "status"])
     args = ap.parse_args()
     return {"status": cmd_status, "install": cmd_install, "start": cmd_start,
             "stop": cmd_stop, "open": cmd_open, "music": cmd_music,
-            "prefs": cmd_prefs}.get(args.cmd, cmd_status)(args)
+            "prefs": cmd_prefs, "sound": cmd_sound}.get(args.cmd, cmd_status)(args)
 
 
 if __name__ == "__main__":

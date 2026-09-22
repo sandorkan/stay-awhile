@@ -165,6 +165,28 @@ class RuntimeTests(unittest.TestCase):
         self.assertTrue(report(3, reset + 18000, 'live').startswith('3%'))
         self.assertEqual(server.read_state(str(self.data))['five_hour']['used'], 3)
 
+    def test_mute_silences_hooks_until_unmuted(self):
+        env = self.env()
+        sound = lambda action: subprocess.run([*BASH, str(ROOT/'scripts/sound.sh'), action], env=env,
+                                              capture_output=True, text=True, check=True).stdout.strip()
+        # Real track, a player that would start: record launches instead of launching.
+        probe = """source "$CLAUDE_PLUGIN_ROOT/scripts/lib.sh"
+PLAYER=afplay
+detach() { echo "loop $2" >> "$CLAUDE_PLUGIN_DATA/launched"; }
+play() { echo "cue $1" >> "$CLAUDE_PLUGIN_DATA/launched"; }
+start_loop heartbeat; play_once done; wait
+cat "$CLAUDE_PLUGIN_DATA/launched" 2>/dev/null; true"""
+        launched = lambda: subprocess.run([*BASH, '-c', probe], env=env, capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual(sound('status'), 'on')
+        self.assertEqual(sound('off'), 'off')
+        self.assertTrue((self.data/'muted').exists())
+        self.assertEqual(launched(), [])
+        self.assertFalse(server.read_state(str(self.data))['running'])
+        self.assertTrue(server.read_state(str(self.data))['muted'])
+        self.assertEqual(sound('on'), 'on')
+        self.assertEqual(launched(), ['loop', 'osascript', 'cue', 'done'])
+        self.assertFalse(server.read_state(str(self.data))['muted'])
+
     def test_old_fade_watchdog_preserves_new_loop(self):
         # No real player is launched. The expired PID cannot exist on our
         # supported platforms; the actual watchdog still runs its ownership check.

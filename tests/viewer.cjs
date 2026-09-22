@@ -3,7 +3,7 @@
 const fs=require('fs'), vm=require('vm'), assert=require('assert');
 const source=fs.readFileSync(require('path').join(__dirname,'../viewer/scene.html'),'utf8').match(/<script>([\s\S]*?)<\/script>/)[1];
 let moved=false, now=1000000, pixels;
-const elements=new Map(), moving=new Set(['cv','hudL','hudR','stripToggle','dayCount','turnBars','turnTooltip','settingsToggle','settingsPanel','settingsClose','musicSelect','volumeRange','volumeOut','settingsFeedback','sceneSelect']);
+const elements=new Map(), moving=new Set(['cv','hudL','hudR','stripToggle','dayCount','turnBars','turnTooltip','settingsToggle','settingsPanel','settingsClose','musicSelect','volumeRange','volumeOut','soundToggle','settingsFeedback','sceneSelect']);
 let parentDocument, pipDocument;
 function element(id) {
   if(!elements.has(id)) elements.set(id,{
@@ -24,7 +24,7 @@ pipDocument={createElement:()=>element(Symbol()),activeElement:null,head:element
 const pip={document:pipDocument,events:{},addEventListener(k,f){this.events[k]=f},requestAnimationFrame(){},close(){this.events.pagehide?.()}};
 class FakeDate extends Date { static now(){return now*1000} }
 class EventSource { static CLOSED=2;static CONNECTING=0; constructor(){this.readyState=1} addEventListener(){} close(){} }
-let selectedTrack='none', selectedVolume=0.4, failSave=false;
+let selectedTrack='none', selectedVolume=0.4, selectedMuted=false, failSave=false;
 const preferences=new Map([['wr-strip-2','on']]);
 const settingsFetch=async(url,options)=>{
   assert.equal(url,'/settings'); assert.equal(options.headers['X-Stay-Awhile'],'1');
@@ -32,9 +32,10 @@ const settingsFetch=async(url,options)=>{
     if(failSave) return {ok:false,json:async()=>({error:'Save failed'})};
     const body=JSON.parse(options.body);
     if('volume' in body) { assert.deepEqual(Object.keys(body),['volume']); selectedVolume=body.volume; return {ok:true,json:async()=>({volume:selectedVolume})}; }
+    if('muted' in body) { assert.deepEqual(Object.keys(body),['muted']); assert.equal(typeof body.muted,'boolean'); selectedMuted=body.muted; return {ok:true,json:async()=>({muted:selectedMuted})}; }
     selectedTrack=body.track;
   }
-  return {ok:true,json:async()=>({track:selectedTrack,volume:selectedVolume,groups:{ambient:['ambient/dusk']}})};
+  return {ok:true,json:async()=>({track:selectedTrack,volume:selectedVolume,muted:selectedMuted,groups:{ambient:['ambient/dusk']}})};
 };
 const context=vm.createContext({console,document:parentDocument,location:{protocol:'http:',search:'?dev',hash:''},
   fetch:settingsFetch,
@@ -72,6 +73,10 @@ assert.equal(preferences.get('sa-strip-2'),'on');
   await element('volumeRange').onchange();assert.equal(selectedVolume,0.8);assert.match(element('settingsFeedback').textContent,/next turn/);
   failSave=true;element('volumeRange').value='0.1';await element('volumeRange').onchange();
   assert.equal(element('volumeRange').value,0.8);assert.equal(element('volumeOut').textContent,'80%');
+  failSave=false;
+  assert.equal(element('soundToggle').checked,true);
+  element('soundToggle').checked=false;await element('soundToggle').onchange();assert.equal(selectedMuted,true);assert.match(element('settingsFeedback').textContent,/Sound off/);
+  run('applyLive({running:false,muted:false,turns:[]})');assert.equal(element('soundToggle').checked,true);
   run("settingsPanel.hidden=false;stripKey({key:'Escape',preventDefault(){}})");
   assert(element('settingsPanel').hidden);
   assert.equal(pipDocument.activeElement,element('settingsToggle'));

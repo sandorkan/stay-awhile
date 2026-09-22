@@ -140,18 +140,23 @@ behaviour and options.
 - `scripts/setup.py` owns anything that touches the user's settings.json.
   Its `install` command is dry-run by default; `--apply` writes after a backup and
   chains to an existing statusLine instead of replacing it.
-- `commands/` holds four slash commands: `init` (one-time status-line setup,
+- `commands/` holds six slash commands: `init` (one-time status-line setup,
   must ask before applying), `show` (start the server, open the window),
-  `close` and `music` (audition and choose a loop). Keep them thin: logic belongs
-  in setup.py, and `show` relays
-  setup.py's printed explanation rather than writing its own — a model
-  paraphrasing it has produced wrong descriptions.
+  `close`, `music` (audition and choose a loop), `mute` and `unmute`. Keep
+  them thin: logic belongs in setup.py, and `show` relays setup.py's printed
+  explanation rather than writing its own — a model paraphrasing it has
+  produced wrong descriptions.
+- Mute is the file `$DATA/muted`, not a setting: `scripts/sound.sh off`
+  writes it and fades the running loop through `stop_loop`; `start_loop`,
+  `play_once` and the eye-cue arming return early while it exists; `on`
+  removes it and the next resume hook restarts the loop. It is the one
+  `/settings` write that touches playback, on purpose.
 - `scripts/viewer-server.py` reads hook-owned data without modifying it. It
   writes and cleans up its own `server.pid` identity record; `/settings`
-  accepts exactly `{track, expected}` or `{volume}` and delegates to
-  `setup.save_music` / `setup.save_volume`, both thin wrappers over
-  `save_option`. Keep saves atomic, preserve unrelated settings, and never
-  start/stop playback here.
+  accepts exactly `{track, expected}`, `{volume}` or `{muted}` and delegates
+  to `setup.save_music` / `setup.save_volume` (thin wrappers over
+  `save_option`) / `setup.set_muted`. Keep saves atomic, preserve unrelated
+  settings, and never start/stop playback here except through mute.
 - `/settings` requires the viewer's custom header and a loopback Host with the
   server's port; reject foreign origins and do not enable CORS. Never expose
   arbitrary settings edits or shell commands through this endpoint.

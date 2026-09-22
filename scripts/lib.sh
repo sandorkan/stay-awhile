@@ -90,6 +90,7 @@ LOOP_MARKER="$DATA/loop.marker"   # Windows: the stop marker the running loop wa
 EYE_PID="$DATA/eye.pid"
 COUNT_FILE="$DATA/eye.count"
 STOP_FILE="$DATA/loop.stop"   # each player watches loop.stop.<its PID>
+MUTED="$DATA/muted"           # /stay-awhile:mute: while it exists, no loop and no cue
 
 # --- platform ---------------------------------------------------------------
 
@@ -148,6 +149,7 @@ play() {
 
 # play_once <name>  — fire and forget, never blocks the hook
 play_once() {
+  [ -f "$MUTED" ] && return 0
   play "$1" </dev/null >/dev/null 2>&1 &
   return 0
 }
@@ -402,6 +404,7 @@ start_loop() {
   local track="$1"
   [ -f "$SOUNDS/$track.wav" ] || return 0
   [ "$PLAYER" = "none" ] && return 0
+  [ -f "$MUTED" ] && return 0
   if loop_alive; then
     local pid marker
     readf pid "$LOOP_PID"

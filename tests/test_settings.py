@@ -195,6 +195,13 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
         saved = json.loads(self.settings.read_text())['pluginConfigs']['stay-awhile@local']['options']
         self.assertEqual(saved, {'volume': 0.75, 'track': 'ambient/dusk'})
         self.assertEqual(setup.hook_volume(), '0.75')
+        with patch.object(setup, 'DATA', str(self.data)):
+            code, result = self.request({'muted': True})
+            self.assertEqual((code, result), (200, {'muted': True}))
+            self.assertTrue((self.data/'muted').exists())
+            self.assertTrue(self.request(method='GET')[1]['muted'])
+            self.assertEqual(self.request({'muted': False}), (200, {'muted': False}))
+            self.assertFalse((self.data/'muted').exists())
 
     def test_endpoint_rejects_foreign_origins_hosts_and_bad_payloads(self):
         self.seed()
@@ -203,7 +210,8 @@ source "$CLAUDE_PLUGIN_ROOT/scripts/start.sh" "$@"
                         {'X-Stay-Awhile': ''}, {'Sec-Fetch-Site': 'cross-site'}]:
             self.assertEqual(self.request(payload, headers)[0], 403)
         for invalid in [{'track': 'none'}, [], {'track': 'none', 'expected': None},
-                        {'volume': 1.5}, {'volume': 'loud'}, {'volume': True}, {'volume': 0.5, 'track': 'none'}]:
+                        {'volume': 1.5}, {'volume': 'loud'}, {'volume': True}, {'volume': 0.5, 'track': 'none'},
+                        {'muted': 'yes'}, {'muted': 1}, {'muted': True, 'volume': 0.5}]:
             self.assertEqual(self.request(invalid)[0], 400)
         self.assertEqual(self.request(payload, {'Content-Length': '99999'})[0], 400)
         self.assertEqual(setup.music_settings()['track'], 'none')

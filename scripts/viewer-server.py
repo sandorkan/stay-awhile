@@ -193,6 +193,7 @@ def read_state(data):
         "started_at": started[0]["began"] if started else None,
         "concurrent": len(active),
         "track": track,
+        "muted": os.path.isfile(os.path.join(data, "muted")),
         "turns": turns,
     }
 
@@ -246,6 +247,10 @@ class Handler(BaseHTTPRequestHandler):
             if set(payload) == {"volume"}:
                 volume = settings_tool.save_volume(payload["volume"])
                 return self.settings_response(200, {"volume": volume})
+            if set(payload) == {"muted"} and isinstance(payload["muted"], bool):
+                # The one setting that does touch playback: muting fades the
+                # loop that is playing now, which is the point of it.
+                return self.settings_response(200, {"muted": settings_tool.set_muted(payload["muted"])})
             raise ValueError("Invalid settings request.")
         except ValueError as e:
             return self.settings_response(400, {"error": str(e)})

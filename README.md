@@ -58,6 +58,7 @@ settings are available in the browser scene and the floating window:
 | **Scene** | Switch immediately between Lakeside, Alpine Valley, Coastal Lighthouse, and Desert Canyon. |
 | **Music** | Choose a track, shuffle a category, or select **Off**. |
 | **Volume** | Adjust the volume with a slider. |
+| **Sound** | Off fades the current loop at once and silences cues in every session; on returns with the next tool call. Music and volume are kept. |
 | **Show turn stats** | Show or hide today’s turn-history bars. |
 
 Music and volume save to Claude’s plugin settings and apply when a new loop
@@ -100,6 +101,8 @@ keys on a bar to inspect its duration and outcome. Press `b` to toggle the strip
 | `/stay-awhile:show` | Start the local viewer and open its launcher. |
 | `/stay-awhile:close` | Close the viewer and stop its server. |
 | `/stay-awhile:music` | Preview tracks and choose one. |
+| `/stay-awhile:mute` | Turn all sound off now: the loop fades, cues stay silent, music and volume are kept. |
+| `/stay-awhile:unmute` | Turn sound back on; it returns with the next tool call or prompt. |
 
 ## Why stay awhile?
 

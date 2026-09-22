@@ -129,6 +129,8 @@
     <label for="volumeRange">Volume <span id="volumeOut"></span></label>
     <input type="range" id="volumeRange" min="0" max="1" step="0.05" aria-describedby="volumeHint settingsFeedback" disabled>
     <p id="volumeHint">Applies from the next turn.</p>
+    <label><input type="checkbox" id="soundToggle" aria-describedby="soundHint settingsFeedback" disabled> Sound</label>
+    <p id="soundHint">Off fades the loop now and silences cues; on returns with the next tool call.</p>
     <label><input type="checkbox" id="stripToggle"> Show turn stats</label>
     <p class="settings-feedback" id="settingsFeedback" role="status" aria-live="polite"></p>
     <footer class="settings-support">
@@ -163,6 +165,7 @@ const settingsPanel=document.getElementById('settingsPanel');
 const settingsClose=document.getElementById('settingsClose');
 const musicSelect=document.getElementById('musicSelect');
 const volumeRange=document.getElementById('volumeRange'), volumeOut=document.getElementById('volumeOut');
+const soundToggle=document.getElementById('soundToggle');
 const sceneSelect=document.getElementById('sceneSelect');
 // Copy legacy browser preferences once; never override a newer choice.
 try {
@@ -1303,6 +1306,8 @@ function applyLive(d) {
     state.running = !!d.running;
     $('bRun') && $('bRun').classList.toggle('on', state.running);
   }
+  // /stay-awhile:mute from a terminal shows up here; keep the switch honest.
+  if (typeof d.muted === 'boolean' && !savingMusic) { savedMuted = d.muted; soundToggle.checked = !d.muted; }
   // A permission pause is idle too, but only a newly completed turn sends
   // birds. This also handles one turn finishing while another keeps working.
   const completed = Array.isArray(d.turns) ? d.turns[d.turns.length-1] : null;
@@ -1433,7 +1438,7 @@ function setStrip(on) {
 }
 setStrip(stripShown);
 stripToggle.onchange = () => setStrip(stripToggle.checked);
-let savedTrack = null, savedVolume = null, savingMusic = false, settingsLoad = 0;
+let savedTrack = null, savedVolume = null, savedMuted = null, savingMusic = false, settingsLoad = 0;
 const showVolume = v => { volumeOut.textContent = Math.round(v * 100) + '%'; };
 async function settingsRequest(method = 'GET', data) {
   const response = await fetch('/settings', {
@@ -1450,8 +1455,8 @@ function addMusicOption(parent, value, label) {
 }
 async function loadMusic() {
   const request = ++settingsLoad;
-  musicSelect.disabled = true; volumeRange.disabled = true;
-  settingsFeedback.textContent = LIVE ? 'Loading music…' : 'Open the live viewer to change music or volume.';
+  musicSelect.disabled = true; volumeRange.disabled = true; soundToggle.disabled = true;
+  settingsFeedback.textContent = LIVE ? 'Loading music…' : 'Open the live viewer to change music, volume or sound.';
   if (!LIVE) return;
   try {
     const data = await settingsRequest();
@@ -1478,6 +1483,10 @@ async function loadMusic() {
       savedVolume = data.volume;
       volumeRange.value = data.volume; showVolume(data.volume);
       volumeRange.disabled = false;
+    }
+    if (typeof data.muted === 'boolean') {
+      savedMuted = data.muted; soundToggle.checked = !data.muted;
+      soundToggle.disabled = false;
     }
     settingsFeedback.textContent = '';
   } catch (e) {
@@ -1526,6 +1535,21 @@ volumeRange.onchange = async () => {
     settingsFeedback.textContent = e.message || 'Could not save volume. Try again.';
   } finally {
     savingMusic = false; volumeRange.disabled = false;
+  }
+};
+soundToggle.onchange = async () => {
+  if (savingMusic || savedMuted === null) return;
+  savingMusic = true; soundToggle.disabled = true;
+  settingsFeedback.textContent = 'Saving…';
+  try {
+    const result = await settingsRequest('POST', {muted: !soundToggle.checked});
+    savedMuted = result.muted; soundToggle.checked = !result.muted;
+    settingsFeedback.textContent = result.muted ? 'Sound off. The loop is fading out.' : 'Sound on. It returns with the next tool call or prompt.';
+  } catch (e) {
+    soundToggle.checked = !savedMuted;
+    settingsFeedback.textContent = e.message || 'Could not change sound. Try again.';
+  } finally {
+    savingMusic = false; soundToggle.disabled = false;
   }
 };
 frameEl.addEventListener('pointerdown', e => {
